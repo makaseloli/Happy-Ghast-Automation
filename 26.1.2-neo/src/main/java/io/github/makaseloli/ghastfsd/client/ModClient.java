@@ -23,7 +23,7 @@ public class ModClient {
             GhastFsdScreens.openTaskEditor(payload.hand(), payload.routeRoot(), payload.stations())
         );
         event.register(GhastFsdPayloads.OpenStationEditorPayload.TYPE, (payload, context) ->
-            GhastFsdScreens.openStationEditor(payload.pos(), payload.name(), payload.dockingHeight(), payload.stationDirection(), payload.arrivalInstrument(), payload.arrivalNote())
+            GhastFsdScreens.openStationEditor(payload.pos(), payload.name(), payload.dockingHeight(), payload.stationDirection(), payload.arrivalInstrument(), payload.arrivalNote(), payload.groupName())
         );
     }
 

@@ -1,9 +1,13 @@
 package io.github.makaseloli.ghastfsd.network;
 
 import io.github.makaseloli.ghastfsd.ModUtils;
+import io.github.makaseloli.ghastfsd.content.FsdTaskAttachment;
+import io.github.makaseloli.ghastfsd.content.FsdTaskNotifier;
+import io.github.makaseloli.ghastfsd.content.GhastCouplingAttachment;
 import io.github.makaseloli.ghastfsd.content.GhastFsdContent;
 import io.github.makaseloli.ghastfsd.content.GhastStationBlockEntity;
 import io.github.makaseloli.ghastfsd.content.GhastStationData;
+import io.github.makaseloli.ghastfsd.content.GhastStationBlock;
 import io.github.makaseloli.ghastfsd.route.RouteData;
 import java.util.ArrayList;
 import java.util.List;
@@ -19,6 +23,8 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.animal.happyghast.HappyGhast;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 
@@ -135,7 +141,7 @@ public final class GhastFsdPayloads {
         }
     }
 
-    public record OpenStationEditorPayload(BlockPos pos, String name, int dockingHeight, String stationDirection, String arrivalInstrument, int arrivalNote) implements CustomPacketPayload {
+    public record OpenStationEditorPayload(BlockPos pos, String name, int dockingHeight, String stationDirection, String arrivalInstrument, int arrivalNote, String groupName) implements CustomPacketPayload {
         public static final Type<OpenStationEditorPayload> TYPE = new Type<>(ModUtils.id("open_station_editor"));
         public static final StreamCodec<RegistryFriendlyByteBuf, OpenStationEditorPayload> STREAM_CODEC = StreamCodec.ofMember(
             OpenStationEditorPayload::write,
@@ -143,7 +149,7 @@ public final class GhastFsdPayloads {
         );
 
         private static OpenStationEditorPayload read(RegistryFriendlyByteBuf buf) {
-            return new OpenStationEditorPayload(buf.readBlockPos(), buf.readUtf(64), buf.readVarInt(), buf.readUtf(16), buf.readUtf(32), buf.readVarInt());
+            return new OpenStationEditorPayload(buf.readBlockPos(), buf.readUtf(64), buf.readVarInt(), buf.readUtf(16), buf.readUtf(32), buf.readVarInt(), buf.readUtf(64));
         }
 
         private void write(RegistryFriendlyByteBuf buf) {
@@ -153,6 +159,7 @@ public final class GhastFsdPayloads {
             buf.writeUtf(stationDirection, 16);
             buf.writeUtf(arrivalInstrument, 32);
             buf.writeVarInt(arrivalNote);
+            buf.writeUtf(groupName, 64);
         }
 
         @Override
@@ -161,7 +168,7 @@ public final class GhastFsdPayloads {
         }
     }
 
-    public record SaveStationPayload(BlockPos pos, String name, int dockingHeight, String stationDirection, String arrivalInstrument, int arrivalNote) implements CustomPacketPayload {
+    public record SaveStationPayload(BlockPos pos, String name, int dockingHeight, String stationDirection, String arrivalInstrument, int arrivalNote, String groupName) implements CustomPacketPayload {
         public static final Type<SaveStationPayload> TYPE = new Type<>(ModUtils.id("save_station"));
         public static final StreamCodec<RegistryFriendlyByteBuf, SaveStationPayload> STREAM_CODEC = StreamCodec.ofMember(
             SaveStationPayload::write,
@@ -169,7 +176,7 @@ public final class GhastFsdPayloads {
         );
 
         private static SaveStationPayload read(RegistryFriendlyByteBuf buf) {
-            return new SaveStationPayload(buf.readBlockPos(), buf.readUtf(64), buf.readVarInt(), buf.readUtf(16), buf.readUtf(32), buf.readVarInt());
+            return new SaveStationPayload(buf.readBlockPos(), buf.readUtf(64), buf.readVarInt(), buf.readUtf(16), buf.readUtf(32), buf.readVarInt(), buf.readUtf(64));
         }
 
         private void write(RegistryFriendlyByteBuf buf) {
@@ -179,6 +186,7 @@ public final class GhastFsdPayloads {
             buf.writeUtf(stationDirection, 16);
             buf.writeUtf(arrivalInstrument, 32);
             buf.writeVarInt(arrivalNote);
+            buf.writeUtf(groupName, 64);
         }
 
         @Override
@@ -216,6 +224,7 @@ public final class GhastFsdPayloads {
             String stationDirection = Direction.NORTH.getSerializedName();
             String arrivalInstrument = GhastStationBlockEntity.parseInstrument("").getSerializedName();
             int arrivalNote = GhastStationBlockEntity.DEFAULT_NOTE;
+            String groupName = dockedGroupName(serverLevel, payload.pos());
             if (serverLevel.getBlockEntity(payload.pos()) instanceof GhastStationBlockEntity station) {
                 name = station.stationName();
                 dockingHeight = station.dockingHeight();
@@ -223,7 +232,7 @@ public final class GhastFsdPayloads {
                 arrivalInstrument = station.arrivalInstrument().getSerializedName();
                 arrivalNote = station.arrivalNote();
             }
-            player.connection.send(new ClientboundCustomPayloadPacket(new OpenStationEditorPayload(payload.pos(), name, dockingHeight, stationDirection, arrivalInstrument, arrivalNote)));
+            player.connection.send(new ClientboundCustomPayloadPacket(new OpenStationEditorPayload(payload.pos(), name, dockingHeight, stationDirection, arrivalInstrument, arrivalNote, groupName)));
         }
     }
 
@@ -242,7 +251,30 @@ public final class GhastFsdPayloads {
                 station.setArrivalInstrument(payload.arrivalInstrument());
                 station.setArrivalNote(payload.arrivalNote());
                 data.update(serverLevel.dimension(), payload.pos(), station);
+                applyDockedGroupName(serverLevel, payload.pos(), payload.groupName());
                 player.sendOverlayMessage(Component.translatable("message.ghastfsd.station_saved", name));
+            }
+        }
+    }
+
+    private static String dockedGroupName(ServerLevel level, BlockPos pos) {
+        for (HappyGhast ghast : level.getEntities(EntityType.HAPPY_GHAST, ghast -> ghast.isAlive() && GhastStationBlock.arrivalBox(pos).intersects(ghast.getBoundingBox()))) {
+            HappyGhast carrier = GhastCouplingAttachment.taskCarrier(level, ghast).orElse(ghast);
+            ItemStack task = FsdTaskAttachment.getTask(carrier);
+            if (task.getItem() == GhastFsdContent.FSD_TASK) {
+                return FsdTaskNotifier.groupName(task);
+            }
+        }
+        return "";
+    }
+
+    private static void applyDockedGroupName(ServerLevel level, BlockPos pos, String name) {
+        for (HappyGhast ghast : level.getEntities(EntityType.HAPPY_GHAST, ghast -> ghast.isAlive() && GhastStationBlock.arrivalBox(pos).intersects(ghast.getBoundingBox()))) {
+            HappyGhast carrier = GhastCouplingAttachment.taskCarrier(level, ghast).orElse(ghast);
+            ItemStack task = FsdTaskAttachment.getTask(carrier);
+            if (task.getItem() == GhastFsdContent.FSD_TASK) {
+                FsdTaskNotifier.setGroupName(task, name);
+                FsdTaskAttachment.setTask(carrier, task);
             }
         }
     }

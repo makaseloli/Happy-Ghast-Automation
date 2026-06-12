@@ -1,4 +1,5 @@
 {
+  "icon": "ghastfsd.png",
   "mixins": [
     "ghastfsd.mixins.json"
   ],

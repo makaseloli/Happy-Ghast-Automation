@@ -44,22 +44,23 @@ final class VirtualGhastTracker {
         return new HashSet<>();
     }
 
-    static void syncLoaded(UUID id, ResourceKey<Level> dimension, Vec3 position, float yaw, UUID previous, UUID next, UUID owner, AutopilotState state, List<RouteInstruction> route) {
+    static void syncLoaded(UUID id, ResourceKey<Level> dimension, Vec3 position, float yaw, UUID previous, UUID next, UUID owner, String groupName, AutopilotState state, List<RouteInstruction> route) {
         Data data = data(stateServer());
         VirtualGhast virtual = data.ghasts.remove(id);
         String missingStationNotified = "";
+        String storedGroupName = FsdTaskNotifier.sanitizeGroupName(groupName);
         if (virtual != null && virtual.dimension.identifier().equals(dimension.identifier())) {
             state.index = virtual.index;
             state.waitTicks = virtual.waitTicks;
             missingStationNotified = virtual.missingStationNotified;
         }
-        data.ghasts.put(id, new VirtualGhast(dimension, position, yaw, previous, next, owner, missingStationNotified, state.index, state.waitTicks, route));
+        data.ghasts.put(id, new VirtualGhast(dimension, position, yaw, previous, next, owner, storedGroupName, missingStationNotified, state.index, state.waitTicks, route));
         data.setDirty();
     }
 
     static void syncCoupled(UUID id, ResourceKey<Level> dimension, Vec3 position, float yaw, UUID previous, UUID next) {
         Data data = data(stateServer());
-        data.ghasts.put(id, new VirtualGhast(dimension, position, yaw, previous, next, null, "", 0, 0, List.of()));
+        data.ghasts.put(id, new VirtualGhast(dimension, position, yaw, previous, next, null, "", "", 0, 0, List.of()));
         data.setDirty();
     }
 
@@ -178,6 +179,7 @@ final class VirtualGhastTracker {
         UUID previous,
         UUID next,
         UUID owner,
+        String groupName,
         String missingStationNotified,
         int index,
         int waitTicks,
@@ -190,6 +192,7 @@ final class VirtualGhastTracker {
             UUID previous = readUuid(tag, "previous");
             UUID next = readUuid(tag, "next");
             UUID owner = readUuid(tag, "owner");
+            String groupName = FsdTaskNotifier.sanitizeGroupName(tag.getStringOr("group_name", ""));
             String missingStationNotified = tag.getStringOr("missing_station_notified", "");
             int index = tag.getIntOr("index", 0);
             int waitTicks = tag.getIntOr("wait_ticks", 0);
@@ -207,7 +210,7 @@ final class VirtualGhastTracker {
                     cmd.getStringOr("label", "")
                 )));
             }
-            return new VirtualGhast(dimension, position, yaw, previous, next, owner, missingStationNotified, index, waitTicks, List.copyOf(route));
+            return new VirtualGhast(dimension, position, yaw, previous, next, owner, groupName, missingStationNotified, index, waitTicks, List.copyOf(route));
         }
 
         CompoundTag toTag() {
@@ -225,6 +228,9 @@ final class VirtualGhastTracker {
             }
             if (owner != null) {
                 tag.putString("owner", owner.toString());
+            }
+            if (!groupName.isBlank()) {
+                tag.putString("group_name", groupName);
             }
             if (!missingStationNotified.isBlank()) {
                 tag.putString("missing_station_notified", missingStationNotified);
@@ -264,6 +270,10 @@ final class VirtualGhastTracker {
             ServerLevel level = server.getLevel(dimension);
             GhastStationData.StationRef stationRef = level == null ? null : GhastStationData.get(level).findIn(level, instruction.stationName()).orElse(null);
             if (stationRef != null) {
+                if (owner != null && !missingStationNotified.isBlank()) {
+                    FsdTaskNotifier.notifyResumedAt(server, owner, FsdTaskNotifier.notificationName(groupName), position);
+                    nextMissingStationNotified = "";
+                }
                 Vec3 target = targetFor(stationRef);
                 Vec3 delta = target.subtract(position);
                 if (delta.lengthSqr() <= 9.0) {
@@ -280,16 +290,16 @@ final class VirtualGhastTracker {
                     nextWait = 0;
                 }
             } else if (owner != null && !instruction.stationName().equals(missingStationNotified)) {
-                FsdTaskNotifier.notifyStoppedAt(server, owner, position);
+                FsdTaskNotifier.notifyStoppedAt(server, owner, FsdTaskNotifier.notificationName(groupName), position);
                 nextMissingStationNotified = instruction.stationName();
             }
-            return new VirtualGhast(dimension, nextPos, nextYaw, previous, next, owner, nextMissingStationNotified, nextIndex, nextWait, route);
+            return new VirtualGhast(dimension, nextPos, nextYaw, previous, next, owner, groupName, nextMissingStationNotified, nextIndex, nextWait, route);
         }
 
         VirtualGhast follow(VirtualGhast previousGhast) {
             Vec3 forward = horizontalForward(previousGhast.yaw);
             Vec3 nextPos = previousGhast.position.subtract(forward.scale(VIRTUAL_COUPLING_SPACING));
-            return new VirtualGhast(dimension, nextPos, previousGhast.yaw, previous, next, owner, missingStationNotified, index, waitTicks, route);
+            return new VirtualGhast(dimension, nextPos, previousGhast.yaw, previous, next, owner, groupName, missingStationNotified, index, waitTicks, route);
         }
 
         private static Vec3 targetFor(GhastStationData.StationRef stationRef) {

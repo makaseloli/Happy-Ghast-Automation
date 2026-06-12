@@ -28,8 +28,8 @@ public final class GhastFsdScreens {
         Minecraft.getInstance().setScreen(new TaskScreen(hand, routeRoot, stations));
     }
 
-    public static void openStationEditor(BlockPos pos, String name, int dockingHeight, String stationDirection, String arrivalInstrument, int arrivalNote) {
-        Minecraft.getInstance().setScreen(new StationScreen(pos, name, dockingHeight, stationDirection, arrivalInstrument, arrivalNote));
+    public static void openStationEditor(BlockPos pos, String name, int dockingHeight, String stationDirection, String arrivalInstrument, int arrivalNote, String groupName) {
+        Minecraft.getInstance().setScreen(new StationScreen(pos, name, dockingHeight, stationDirection, arrivalInstrument, arrivalNote, groupName));
     }
 
     static final class StationScreen extends Screen {
@@ -45,13 +45,15 @@ public final class GhastFsdScreens {
         private final String initialStationDirection;
         private final String initialArrivalInstrument;
         private final int initialArrivalNote;
+        private final String initialGroupName;
         private EditBox name;
         private EditBox dockingHeight;
         private EditBox arrivalNote;
+        private EditBox groupName;
         private String stationDirection;
         private String arrivalInstrument;
 
-        StationScreen(BlockPos pos, String initialName, int initialDockingHeight, String initialStationDirection, String initialArrivalInstrument, int initialArrivalNote) {
+        StationScreen(BlockPos pos, String initialName, int initialDockingHeight, String initialStationDirection, String initialArrivalInstrument, int initialArrivalNote, String initialGroupName) {
             super(Component.translatable("screen.ghastfsd.station"));
             this.pos = pos;
             this.initialName = initialName;
@@ -59,6 +61,7 @@ public final class GhastFsdScreens {
             this.initialStationDirection = normalizeDirection(initialStationDirection);
             this.initialArrivalInstrument = normalizeInstrument(initialArrivalInstrument);
             this.initialArrivalNote = initialArrivalNote;
+            this.initialGroupName = initialGroupName;
             this.stationDirection = this.initialStationDirection;
             this.arrivalInstrument = this.initialArrivalInstrument;
         }
@@ -66,7 +69,7 @@ public final class GhastFsdScreens {
         @Override
         protected void init() {
             int center = width / 2;
-            int top = height / 2 - 70;
+            int top = height / 2 - 84;
             addLabel(center - 170, top, 92, "screen.ghastfsd.station_name");
             name = new EditBox(font, center - 72, top, 222, 20, Component.translatable("screen.ghastfsd.station_name"));
             name.setMaxLength(48);
@@ -100,8 +103,15 @@ public final class GhastFsdScreens {
             arrivalNote.setValue(Integer.toString(initialArrivalNote));
             addRenderableWidget(arrivalNote);
 
-            addRenderableWidget(Button.builder(Component.translatable("button.ghastfsd.save"), button -> save()).bounds(center - 72, top + 146, 106, 20).build());
-            addRenderableWidget(Button.builder(Component.translatable("gui.cancel"), button -> onClose()).bounds(center + 44, top + 146, 106, 20).build());
+            addLabel(center - 170, top + 140, 92, "screen.ghastfsd.group_name");
+            groupName = new EditBox(font, center - 72, top + 140, 222, 20, Component.translatable("screen.ghastfsd.group_name"));
+            groupName.setMaxLength(48);
+            groupName.setHint(Component.literal("FSD"));
+            groupName.setValue(initialGroupName);
+            addRenderableWidget(groupName);
+
+            addRenderableWidget(Button.builder(Component.translatable("button.ghastfsd.save"), button -> save()).bounds(center - 72, top + 174, 106, 20).build());
+            addRenderableWidget(Button.builder(Component.translatable("gui.cancel"), button -> onClose()).bounds(center + 44, top + 174, 106, 20).build());
             setInitialFocus(name);
         }
 
@@ -114,7 +124,8 @@ public final class GhastFsdScreens {
                     parseInt(dockingHeight, initialDockingHeight),
                     stationDirection,
                     arrivalInstrument,
-                    parseInt(arrivalNote, initialArrivalNote)
+                    parseInt(arrivalNote, initialArrivalNote),
+                    groupName.getValue()
                 )));
             }
             onClose();

@@ -14,7 +14,6 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.Entity;
 import net.minecraft.util.datafix.DataFixTypes;
 import net.minecraft.world.entity.animal.happyghast.HappyGhast;
 import net.minecraft.world.entity.player.Player;
@@ -27,6 +26,7 @@ import net.minecraft.world.phys.Vec3;
 public final class FsdTaskNotifier {
     private static final String ROOT = "ghastfsd_task_owner";
     private static final String OWNER_UUID = "uuid";
+    private static final String GROUP_NAME = "group_name";
     private static final String MISSING_STATION_NOTIFIED = "missing_station_notified";
 
     private FsdTaskNotifier() {}
@@ -39,13 +39,46 @@ public final class FsdTaskNotifier {
         });
     }
 
+    public static String groupName(ItemStack task) {
+        CustomData data = task.get(DataComponents.CUSTOM_DATA);
+        if (data == null) {
+            return "";
+        }
+        CompoundTag root = data.copyTag().getCompoundOrEmpty(ROOT);
+        String name = root.getStringOr(GROUP_NAME, "");
+        return sanitizeGroupName(name);
+    }
+
+    public static void setGroupName(ItemStack task, String name) {
+        CustomData.update(DataComponents.CUSTOM_DATA, task, tag -> {
+            CompoundTag root = tag.getCompoundOrEmpty(ROOT);
+            String sanitized = sanitizeGroupName(name);
+            if (sanitized.isBlank()) {
+                root.remove(GROUP_NAME);
+            } else {
+                root.putString(GROUP_NAME, sanitized);
+            }
+            tag.put(ROOT, root);
+        });
+    }
+
     public static boolean notifyMissingStation(ServerLevel level, HappyGhast ghast, ItemStack task, String stationName) {
         UUID owner = ownerUuid(task);
         if (owner == null || wasMissingStationNotified(task, stationName)) {
             return false;
         }
         markMissingStationNotified(task, stationName);
-        notifyStopped(level.getServer(), owner, ghast);
+        notifyStoppedAt(level.getServer(), owner, notificationName(task), ghast.position());
+        return true;
+    }
+
+    public static boolean notifyResumed(ServerLevel level, HappyGhast ghast, ItemStack task) {
+        UUID owner = ownerUuid(task);
+        if (owner == null || !hasMissingStationNotification(task)) {
+            return false;
+        }
+        clearMissingStationNotified(task);
+        notifyResumedAt(level.getServer(), owner, notificationName(task), ghast.position());
         return true;
     }
 
@@ -54,21 +87,34 @@ public final class FsdTaskNotifier {
         if (owner == null || owner.equals(remover.getUUID())) {
             return;
         }
-        notifyStopped(level.getServer(), owner, ghast);
+        notifyStoppedAt(level.getServer(), owner, notificationName(task), ghast.position());
     }
 
     public static void notifyGhastKilled(MinecraftServer server, HappyGhast ghast, ItemStack task) {
         UUID owner = ownerUuid(task);
         if (owner != null) {
-            notifyStopped(server, owner, ghast);
+            notifyStoppedAt(server, owner, notificationName(task), ghast.position());
         }
     }
 
-    public static void notifyStoppedAt(MinecraftServer server, UUID owner, Vec3 position) {
+    public static void notifyStoppedAt(MinecraftServer server, UUID owner, String name, Vec3 position) {
         notifyOwner(
             server,
             owner,
             "message.ghastfsd.notify_task_stopped",
+            notificationName(name),
+            Integer.toString((int)Math.floor(position.x)),
+            Integer.toString((int)Math.floor(position.y)),
+            Integer.toString((int)Math.floor(position.z))
+        );
+    }
+
+    public static void notifyResumedAt(MinecraftServer server, UUID owner, String name, Vec3 position) {
+        notifyOwner(
+            server,
+            owner,
+            "message.ghastfsd.notify_task_resumed",
+            notificationName(name),
             Integer.toString((int)Math.floor(position.x)),
             Integer.toString((int)Math.floor(position.y)),
             Integer.toString((int)Math.floor(position.z))
@@ -102,17 +148,6 @@ public final class FsdTaskNotifier {
         data.setDirty();
     }
 
-    private static void notifyStopped(MinecraftServer server, UUID owner, Entity entity) {
-        notifyOwner(
-            server,
-            owner,
-            "message.ghastfsd.notify_task_stopped",
-            Integer.toString(entity.blockPosition().getX()),
-            Integer.toString(entity.blockPosition().getY()),
-            Integer.toString(entity.blockPosition().getZ())
-        );
-    }
-
     public static UUID ownerUuid(ItemStack task) {
         CustomData data = task.get(DataComponents.CUSTOM_DATA);
         if (data == null) {
@@ -130,6 +165,16 @@ public final class FsdTaskNotifier {
         }
     }
 
+    public static String notificationName(ItemStack task) {
+        String groupName = groupName(task);
+        return groupName.isBlank() ? "FSD" : groupName;
+    }
+
+    public static String notificationName(String name) {
+        String sanitized = sanitizeGroupName(name);
+        return sanitized.isBlank() ? "FSD" : sanitized;
+    }
+
     private static boolean wasMissingStationNotified(ItemStack task, String stationName) {
         CustomData data = task.get(DataComponents.CUSTOM_DATA);
         if (data == null) {
@@ -137,6 +182,15 @@ public final class FsdTaskNotifier {
         }
         CompoundTag root = data.copyTag().getCompoundOrEmpty(ROOT);
         return safeName(stationName).equals(root.getStringOr(MISSING_STATION_NOTIFIED, ""));
+    }
+
+    private static boolean hasMissingStationNotification(ItemStack task) {
+        CustomData data = task.get(DataComponents.CUSTOM_DATA);
+        if (data == null) {
+            return false;
+        }
+        CompoundTag root = data.copyTag().getCompoundOrEmpty(ROOT);
+        return !root.getStringOr(MISSING_STATION_NOTIFIED, "").isBlank();
     }
 
     private static void markMissingStationNotified(ItemStack task, String stationName) {
@@ -147,8 +201,21 @@ public final class FsdTaskNotifier {
         });
     }
 
+    private static void clearMissingStationNotified(ItemStack task) {
+        CustomData.update(DataComponents.CUSTOM_DATA, task, tag -> {
+            CompoundTag root = tag.getCompoundOrEmpty(ROOT);
+            root.remove(MISSING_STATION_NOTIFIED);
+            tag.put(ROOT, root);
+        });
+    }
+
     private static String safeName(String value) {
         return value == null || value.isBlank() ? "?" : value;
+    }
+
+    public static String sanitizeGroupName(String name) {
+        String trimmed = name == null ? "" : name.trim();
+        return trimmed.length() > 48 ? trimmed.substring(0, 48) : trimmed;
     }
 
     private static Data data(MinecraftServer server) {

@@ -124,7 +124,7 @@ public final class GhastAutopilot {
         if (state.pauseTicks > 0) {
             state.pauseTicks--;
             state.write(ghast);
-            VirtualGhastTracker.syncLoaded(ghast.getUUID(), level.dimension(), ghast.position(), ghast.getYRot(), GhastCouplingAttachment.previous(ghast).orElse(null), GhastCouplingAttachment.next(ghast).orElse(null), FsdTaskNotifier.ownerUuid(task), state, route);
+            VirtualGhastTracker.syncLoaded(ghast.getUUID(), level.dimension(), ghast.position(), ghast.getYRot(), GhastCouplingAttachment.previous(ghast).orElse(null), GhastCouplingAttachment.next(ghast).orElse(null), FsdTaskNotifier.ownerUuid(task), FsdTaskNotifier.groupName(task), state, route);
             syncVirtualTrain(level, ghast);
             return;
         }
@@ -140,7 +140,7 @@ public final class GhastAutopilot {
         RouteData.setFocus(task, state.index);
         FsdTaskAttachment.setTask(ghast, task);
         state.write(ghast);
-        VirtualGhastTracker.syncLoaded(ghast.getUUID(), level.dimension(), ghast.position(), ghast.getYRot(), GhastCouplingAttachment.previous(ghast).orElse(null), GhastCouplingAttachment.next(ghast).orElse(null), FsdTaskNotifier.ownerUuid(task), state, route);
+        VirtualGhastTracker.syncLoaded(ghast.getUUID(), level.dimension(), ghast.position(), ghast.getYRot(), GhastCouplingAttachment.previous(ghast).orElse(null), GhastCouplingAttachment.next(ghast).orElse(null), FsdTaskNotifier.ownerUuid(task), FsdTaskNotifier.groupName(task), state, route);
         syncVirtualTrain(level, ghast);
     }
 
@@ -180,6 +180,7 @@ public final class GhastAutopilot {
             ghast.setDeltaMovement(Vec3.ZERO);
             return;
         }
+        FsdTaskNotifier.notifyResumed(level, ghast, task);
         int dockingHeight = dockingHeight(level, station, instruction);
         Direction stationDirection = stationDirection(level, station, instruction);
         Vec3 target = dockingTarget(ghast, station, dockingHeight);
