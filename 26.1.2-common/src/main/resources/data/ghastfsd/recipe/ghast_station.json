@@ -1,0 +1,16 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "key": {
+    "G": "minecraft:dried_ghast",
+    "S": "minecraft:stick",
+    "W": "#minecraft:wool"
+  },
+  "pattern": [
+    "SW",
+    "G "
+  ],
+  "result": {
+    "id": "ghastfsd:ghast_station"
+  }
+}

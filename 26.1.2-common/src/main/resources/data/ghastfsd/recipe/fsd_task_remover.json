@@ -1,0 +1,16 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "tools",
+  "key": {
+    "S": "minecraft:stick",
+    "T": "ghastfsd:fsd_task"
+  },
+  "pattern": [
+    "T",
+    "S",
+    "S"
+  ],
+  "result": {
+    "id": "ghastfsd:fsd_task_remover"
+  }
+}

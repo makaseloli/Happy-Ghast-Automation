@@ -1,0 +1,16 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "I": "minecraft:iron_ingot",
+    "P": "minecraft:paper"
+  },
+  "pattern": [
+    " I ",
+    "PIP",
+    "PPP"
+  ],
+  "result": {
+    "id": "ghastfsd:fsd_task"
+  }
+}
