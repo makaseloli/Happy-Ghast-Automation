@@ -1,6 +1,7 @@
 package io.github.makaseloli.ghastfsd.automation;
 
 import io.github.makaseloli.ghastfsd.content.GhastStationData;
+import io.github.makaseloli.ghastfsd.content.FsdTaskNotifier;
 import io.github.makaseloli.ghastfsd.route.RouteInstruction;
 import com.mojang.serialization.Codec;
 import java.util.HashMap;
@@ -23,6 +24,9 @@ import net.minecraft.world.level.saveddata.SavedDataType;
 import net.minecraft.world.phys.Vec3;
 
 final class VirtualGhastTracker {
+    private static final double VIRTUAL_COUPLING_SPACING = 5.5;
+    private static final int MAX_COUPLED_MEMBERS = 6;
+
     static final SavedDataType<Data> TYPE = new SavedDataType<>(
         Identifier.fromNamespaceAndPath("ghastfsd", "virtual_ghasts"),
         Data::new,
@@ -40,20 +44,44 @@ final class VirtualGhastTracker {
         return new HashSet<>();
     }
 
-    static void syncLoaded(UUID id, ResourceKey<Level> dimension, Vec3 position, AutopilotState state, List<RouteInstruction> route) {
+    static void syncLoaded(UUID id, ResourceKey<Level> dimension, Vec3 position, float yaw, UUID previous, UUID next, UUID owner, AutopilotState state, List<RouteInstruction> route) {
         Data data = data(stateServer());
         VirtualGhast virtual = data.ghasts.remove(id);
+        String missingStationNotified = "";
         if (virtual != null && virtual.dimension.identifier().equals(dimension.identifier())) {
             state.index = virtual.index;
             state.waitTicks = virtual.waitTicks;
+            missingStationNotified = virtual.missingStationNotified;
         }
-        data.ghasts.put(id, new VirtualGhast(dimension, position, state.index, state.waitTicks, route));
+        data.ghasts.put(id, new VirtualGhast(dimension, position, yaw, previous, next, owner, missingStationNotified, state.index, state.waitTicks, route));
+        data.setDirty();
+    }
+
+    static void syncCoupled(UUID id, ResourceKey<Level> dimension, Vec3 position, float yaw, UUID previous, UUID next) {
+        Data data = data(stateServer());
+        data.ghasts.put(id, new VirtualGhast(dimension, position, yaw, previous, next, null, "", 0, 0, List.of()));
         data.setDirty();
     }
 
     static Vec3 virtualPosition(UUID id) {
         VirtualGhast virtual = data(stateServer()).ghasts.get(id);
         return virtual == null ? null : virtual.position;
+    }
+
+    static Vec3 followVirtualCoupling(UUID id) {
+        Data data = data(stateServer());
+        VirtualGhast virtual = data.ghasts.get(id);
+        if (virtual == null || virtual.previous == null || !virtual.route.isEmpty()) {
+            return virtual == null ? null : virtual.position;
+        }
+        VirtualGhast previous = data.ghasts.get(virtual.previous);
+        if (previous == null || !previous.dimension.identifier().equals(virtual.dimension.identifier())) {
+            return virtual.position;
+        }
+        VirtualGhast followed = virtual.follow(previous);
+        data.ghasts.put(id, followed);
+        data.setDirty();
+        return followed.position;
     }
 
     static void remove(UUID id) {
@@ -72,14 +100,32 @@ final class VirtualGhastTracker {
 
     static void tickUnloaded(MinecraftServer server, Set<UUID> seen) {
         Data data = data(server);
+        Map<UUID, VirtualGhast> nextGhasts = new HashMap<>(data.ghasts);
         boolean changed = false;
-        for (Map.Entry<UUID, VirtualGhast> entry : data.ghasts.entrySet()) {
+        for (Map.Entry<UUID, VirtualGhast> entry : nextGhasts.entrySet()) {
             if (!seen.contains(entry.getKey())) {
                 entry.setValue(entry.getValue().tick(server));
                 changed = true;
             }
         }
+        for (int pass = 0; pass < MAX_COUPLED_MEMBERS; pass++) {
+            for (Map.Entry<UUID, VirtualGhast> entry : nextGhasts.entrySet()) {
+                if (seen.contains(entry.getKey()) || entry.getValue().previous == null || !entry.getValue().route.isEmpty()) {
+                    continue;
+                }
+                VirtualGhast previous = nextGhasts.get(entry.getValue().previous);
+                if (previous != null && previous.dimension.identifier().equals(entry.getValue().dimension.identifier())) {
+                    VirtualGhast followed = entry.getValue().follow(previous);
+                    if (!followed.equals(entry.getValue())) {
+                        entry.setValue(followed);
+                        changed = true;
+                    }
+                }
+            }
+        }
         if (changed) {
+            data.ghasts.clear();
+            data.ghasts.putAll(nextGhasts);
             data.setDirty();
         }
     }
@@ -128,6 +174,11 @@ final class VirtualGhastTracker {
     private record VirtualGhast(
         ResourceKey<Level> dimension,
         Vec3 position,
+        float yaw,
+        UUID previous,
+        UUID next,
+        UUID owner,
+        String missingStationNotified,
         int index,
         int waitTicks,
         List<RouteInstruction> route
@@ -135,6 +186,11 @@ final class VirtualGhastTracker {
         static VirtualGhast fromTag(CompoundTag tag) {
             ResourceKey<Level> dimension = ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION, Identifier.parse(tag.getStringOr("dimension", Level.OVERWORLD.identifier().toString())));
             Vec3 position = new Vec3(tag.getDoubleOr("x", 0.0), tag.getDoubleOr("y", 0.0), tag.getDoubleOr("z", 0.0));
+            float yaw = tag.getFloatOr("yaw", 0.0F);
+            UUID previous = readUuid(tag, "previous");
+            UUID next = readUuid(tag, "next");
+            UUID owner = readUuid(tag, "owner");
+            String missingStationNotified = tag.getStringOr("missing_station_notified", "");
             int index = tag.getIntOr("index", 0);
             int waitTicks = tag.getIntOr("wait_ticks", 0);
             java.util.ArrayList<RouteInstruction> route = new java.util.ArrayList<>();
@@ -151,7 +207,7 @@ final class VirtualGhastTracker {
                     cmd.getStringOr("label", "")
                 )));
             }
-            return new VirtualGhast(dimension, position, index, waitTicks, List.copyOf(route));
+            return new VirtualGhast(dimension, position, yaw, previous, next, owner, missingStationNotified, index, waitTicks, List.copyOf(route));
         }
 
         CompoundTag toTag() {
@@ -160,6 +216,19 @@ final class VirtualGhastTracker {
             tag.putDouble("x", position.x);
             tag.putDouble("y", position.y);
             tag.putDouble("z", position.z);
+            tag.putFloat("yaw", yaw);
+            if (previous != null) {
+                tag.putString("previous", previous.toString());
+            }
+            if (next != null) {
+                tag.putString("next", next.toString());
+            }
+            if (owner != null) {
+                tag.putString("owner", owner.toString());
+            }
+            if (!missingStationNotified.isBlank()) {
+                tag.putString("missing_station_notified", missingStationNotified);
+            }
             tag.putInt("index", index);
             tag.putInt("wait_ticks", waitTicks);
             ListTag routeTag = new ListTag();
@@ -189,6 +258,8 @@ final class VirtualGhastTracker {
             int nextIndex = Math.floorMod(index, route.size());
             int nextWait = waitTicks;
             Vec3 nextPos = position;
+            float nextYaw = yaw;
+            String nextMissingStationNotified = missingStationNotified;
             RouteInstruction instruction = route.get(nextIndex);
             ServerLevel level = server.getLevel(dimension);
             GhastStationData.StationRef stationRef = level == null ? null : GhastStationData.get(level).findIn(level, instruction.stationName()).orElse(null);
@@ -196,6 +267,7 @@ final class VirtualGhastTracker {
                 Vec3 target = targetFor(stationRef);
                 Vec3 delta = target.subtract(position);
                 if (delta.lengthSqr() <= 9.0) {
+                    nextYaw = stationRef.direction().toYRot();
                     nextWait++;
                     if (!"fly_to_station".equals(instruction.type()) || nextWait >= Math.max(0, instruction.waitSeconds()) * 20) {
                         nextIndex = (nextIndex + 1) % route.size();
@@ -204,16 +276,47 @@ final class VirtualGhastTracker {
                 } else {
                     double speed = GhastAutopilot.autopilotCruiseSpeed();
                     nextPos = position.add(delta.normalize().scale(Math.min(speed, Math.sqrt(delta.lengthSqr()))));
+                    nextYaw = yawFrom(delta);
                     nextWait = 0;
                 }
+            } else if (owner != null && !instruction.stationName().equals(missingStationNotified)) {
+                FsdTaskNotifier.notifyStoppedAt(server, owner, position);
+                nextMissingStationNotified = instruction.stationName();
             }
-            return new VirtualGhast(dimension, nextPos, nextIndex, nextWait, route);
+            return new VirtualGhast(dimension, nextPos, nextYaw, previous, next, owner, nextMissingStationNotified, nextIndex, nextWait, route);
+        }
+
+        VirtualGhast follow(VirtualGhast previousGhast) {
+            Vec3 forward = horizontalForward(previousGhast.yaw);
+            Vec3 nextPos = previousGhast.position.subtract(forward.scale(VIRTUAL_COUPLING_SPACING));
+            return new VirtualGhast(dimension, nextPos, previousGhast.yaw, previous, next, owner, missingStationNotified, index, waitTicks, route);
         }
 
         private static Vec3 targetFor(GhastStationData.StationRef stationRef) {
             BlockPos pos = stationRef.pos();
             double y = pos.getY() + stationRef.dockingHeight();
             return new Vec3(pos.getX() + 0.5, y, pos.getZ() + 0.5);
+        }
+
+        private static Vec3 horizontalForward(float yaw) {
+            double radians = Math.toRadians(yaw);
+            return new Vec3(-Math.sin(radians), 0.0, Math.cos(radians));
+        }
+
+        private static float yawFrom(Vec3 movement) {
+            return (float)(Math.atan2(movement.z, movement.x) * 180.0 / Math.PI) - 90.0F;
+        }
+
+        private static UUID readUuid(CompoundTag tag, String key) {
+            String value = tag.getStringOr(key, "");
+            if (value.isEmpty()) {
+                return null;
+            }
+            try {
+                return UUID.fromString(value);
+            } catch (IllegalArgumentException exception) {
+                return null;
+            }
         }
     }
 }

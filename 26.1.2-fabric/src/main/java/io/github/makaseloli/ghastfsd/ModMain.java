@@ -1,17 +1,24 @@
 package io.github.makaseloli.ghastfsd;
 
 import io.github.makaseloli.ghastfsd.automation.GhastAutopilot;
+import io.github.makaseloli.ghastfsd.content.FsdTaskAttachment;
 import io.github.makaseloli.ghastfsd.content.FsdTaskItem;
+import io.github.makaseloli.ghastfsd.content.FsdTaskNotifier;
+import io.github.makaseloli.ghastfsd.content.GhastCouplingLeadItem;
+import io.github.makaseloli.ghastfsd.content.GhastCouplingAttachment;
 import io.github.makaseloli.ghastfsd.content.GhastFsdContent;
 import io.github.makaseloli.ghastfsd.network.GhastFsdPayloads;
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.fabricmc.fabric.api.creativetab.v1.CreativeModeTabEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.player.UseEntityCallback;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.animal.happyghast.HappyGhast;
 import net.minecraft.world.item.ItemStack;
@@ -25,6 +32,7 @@ public class ModMain implements ModInitializer {
         Registry.register(BuiltInRegistries.ITEM, GhastFsdContent.GHAST_STATION_ID, GhastFsdContent.GHAST_STATION_ITEM);
         Registry.register(BuiltInRegistries.ITEM, GhastFsdContent.FSD_TASK_ID, GhastFsdContent.FSD_TASK);
         Registry.register(BuiltInRegistries.ITEM, GhastFsdContent.FSD_TASK_REMOVER_ID, GhastFsdContent.FSD_TASK_REMOVER);
+        Registry.register(BuiltInRegistries.ITEM, GhastFsdContent.GHAST_COUPLING_LEAD_ID, GhastFsdContent.GHAST_COUPLING_LEAD);
         Registry.register(BuiltInRegistries.CREATIVE_MODE_TAB, GhastFsdContent.ITEM_GROUP_KEY, GhastFsdContent.ITEM_GROUP);
         PayloadTypeRegistry.serverboundPlay().register(GhastFsdPayloads.SaveTaskRoutePayload.TYPE, GhastFsdPayloads.SaveTaskRoutePayload.STREAM_CODEC);
         PayloadTypeRegistry.serverboundPlay().register(GhastFsdPayloads.RequestTaskEditorPayload.TYPE, GhastFsdPayloads.RequestTaskEditorPayload.STREAM_CODEC);
@@ -43,12 +51,32 @@ public class ModMain implements ModInitializer {
                 }
                 return InteractionResult.SUCCESS;
             }
+            if (entity instanceof HappyGhast ghast && player.getItemInHand(hand).getItem() == GhastFsdContent.GHAST_COUPLING_LEAD) {
+                if (!world.isClientSide()) {
+                    GhastCouplingLeadItem.useOnHappyGhast(player.getItemInHand(hand), player, ghast);
+                }
+                return InteractionResult.SUCCESS;
+            }
+            if (entity instanceof HappyGhast ghast && GhastCouplingLeadItem.cutWithShears(player.getItemInHand(hand), player, ghast) == InteractionResult.SUCCESS) {
+                return InteractionResult.SUCCESS;
+            }
             return InteractionResult.PASS;
         });
         CreativeModeTabEvents.modifyOutputEvent(GhastFsdContent.ITEM_GROUP_KEY).register(output -> {
             output.accept(new ItemStack(GhastFsdContent.GHAST_STATION_ITEM));
             output.accept(new ItemStack(GhastFsdContent.FSD_TASK));
             output.accept(new ItemStack(GhastFsdContent.FSD_TASK_REMOVER));
+            output.accept(new ItemStack(GhastFsdContent.GHAST_COUPLING_LEAD));
+        });
+        ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> FsdTaskNotifier.deliverPending(handler.player));
+        ServerLivingEntityEvents.AFTER_DEATH.register((entity, damageSource) -> {
+            if (entity instanceof HappyGhast ghast && ghast.level() instanceof ServerLevel level) {
+                HappyGhast carrier = GhastCouplingAttachment.taskCarrier(level, ghast).orElse(ghast);
+                ItemStack task = FsdTaskAttachment.getTask(carrier);
+                if (task.getItem() == GhastFsdContent.FSD_TASK) {
+                    FsdTaskNotifier.notifyGhastKilled(level.getServer(), ghast, task);
+                }
+            }
         });
         ServerTickEvents.END_SERVER_TICK.register(GhastAutopilot::tickServer);
     }

@@ -6,7 +6,11 @@
   "mixins": [
     "HappyGhastControlMixin"
   ],
-  "client": [],
+  "client": [
+    "EntityRendererSubmitMixin",
+    "HappyGhastRenderStateMixin",
+    "HappyGhastRendererMixin"
+  ],
   "injectors": {
     "defaultRequire": 1
   }

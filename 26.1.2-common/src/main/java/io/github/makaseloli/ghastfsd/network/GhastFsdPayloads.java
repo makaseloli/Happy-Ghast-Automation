@@ -8,6 +8,7 @@ import io.github.makaseloli.ghastfsd.route.RouteData;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.chat.Component;
@@ -134,7 +135,7 @@ public final class GhastFsdPayloads {
         }
     }
 
-    public record OpenStationEditorPayload(BlockPos pos, String name, int dockingHeight, String arrivalInstrument, int arrivalNote) implements CustomPacketPayload {
+    public record OpenStationEditorPayload(BlockPos pos, String name, int dockingHeight, String stationDirection, String arrivalInstrument, int arrivalNote) implements CustomPacketPayload {
         public static final Type<OpenStationEditorPayload> TYPE = new Type<>(ModUtils.id("open_station_editor"));
         public static final StreamCodec<RegistryFriendlyByteBuf, OpenStationEditorPayload> STREAM_CODEC = StreamCodec.ofMember(
             OpenStationEditorPayload::write,
@@ -142,13 +143,14 @@ public final class GhastFsdPayloads {
         );
 
         private static OpenStationEditorPayload read(RegistryFriendlyByteBuf buf) {
-            return new OpenStationEditorPayload(buf.readBlockPos(), buf.readUtf(64), buf.readVarInt(), buf.readUtf(32), buf.readVarInt());
+            return new OpenStationEditorPayload(buf.readBlockPos(), buf.readUtf(64), buf.readVarInt(), buf.readUtf(16), buf.readUtf(32), buf.readVarInt());
         }
 
         private void write(RegistryFriendlyByteBuf buf) {
             buf.writeBlockPos(pos);
             buf.writeUtf(name, 64);
             buf.writeVarInt(dockingHeight);
+            buf.writeUtf(stationDirection, 16);
             buf.writeUtf(arrivalInstrument, 32);
             buf.writeVarInt(arrivalNote);
         }
@@ -159,7 +161,7 @@ public final class GhastFsdPayloads {
         }
     }
 
-    public record SaveStationPayload(BlockPos pos, String name, int dockingHeight, String arrivalInstrument, int arrivalNote) implements CustomPacketPayload {
+    public record SaveStationPayload(BlockPos pos, String name, int dockingHeight, String stationDirection, String arrivalInstrument, int arrivalNote) implements CustomPacketPayload {
         public static final Type<SaveStationPayload> TYPE = new Type<>(ModUtils.id("save_station"));
         public static final StreamCodec<RegistryFriendlyByteBuf, SaveStationPayload> STREAM_CODEC = StreamCodec.ofMember(
             SaveStationPayload::write,
@@ -167,13 +169,14 @@ public final class GhastFsdPayloads {
         );
 
         private static SaveStationPayload read(RegistryFriendlyByteBuf buf) {
-            return new SaveStationPayload(buf.readBlockPos(), buf.readUtf(64), buf.readVarInt(), buf.readUtf(32), buf.readVarInt());
+            return new SaveStationPayload(buf.readBlockPos(), buf.readUtf(64), buf.readVarInt(), buf.readUtf(16), buf.readUtf(32), buf.readVarInt());
         }
 
         private void write(RegistryFriendlyByteBuf buf) {
             buf.writeBlockPos(pos);
             buf.writeUtf(name, 64);
             buf.writeVarInt(dockingHeight);
+            buf.writeUtf(stationDirection, 16);
             buf.writeUtf(arrivalInstrument, 32);
             buf.writeVarInt(arrivalNote);
         }
@@ -210,15 +213,17 @@ public final class GhastFsdPayloads {
         if (player.level() instanceof ServerLevel serverLevel && isEditableStation(serverLevel, payload.pos(), player)) {
             String name = "";
             int dockingHeight = GhastStationBlockEntity.DEFAULT_DOCKING_HEIGHT;
+            String stationDirection = Direction.NORTH.getSerializedName();
             String arrivalInstrument = GhastStationBlockEntity.parseInstrument("").getSerializedName();
             int arrivalNote = GhastStationBlockEntity.DEFAULT_NOTE;
             if (serverLevel.getBlockEntity(payload.pos()) instanceof GhastStationBlockEntity station) {
                 name = station.stationName();
                 dockingHeight = station.dockingHeight();
+                stationDirection = station.stationDirection().getSerializedName();
                 arrivalInstrument = station.arrivalInstrument().getSerializedName();
                 arrivalNote = station.arrivalNote();
             }
-            player.connection.send(new ClientboundCustomPayloadPacket(new OpenStationEditorPayload(payload.pos(), name, dockingHeight, arrivalInstrument, arrivalNote)));
+            player.connection.send(new ClientboundCustomPayloadPacket(new OpenStationEditorPayload(payload.pos(), name, dockingHeight, stationDirection, arrivalInstrument, arrivalNote)));
         }
     }
 
@@ -233,6 +238,7 @@ public final class GhastFsdPayloads {
             if (serverLevel.getBlockEntity(payload.pos()) instanceof GhastStationBlockEntity station) {
                 station.setStationName(name);
                 station.setDockingHeight(payload.dockingHeight());
+                station.setStationDirection(payload.stationDirection());
                 station.setArrivalInstrument(payload.arrivalInstrument());
                 station.setArrivalNote(payload.arrivalNote());
                 data.update(serverLevel.dimension(), payload.pos(), station);

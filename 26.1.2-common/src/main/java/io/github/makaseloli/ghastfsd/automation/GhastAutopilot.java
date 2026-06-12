@@ -1,16 +1,20 @@
 package io.github.makaseloli.ghastfsd.automation;
 
 import io.github.makaseloli.ghastfsd.content.GhastFsdContent;
+import io.github.makaseloli.ghastfsd.content.GhastCouplingAttachment;
 import io.github.makaseloli.ghastfsd.content.FsdTaskAttachment;
+import io.github.makaseloli.ghastfsd.content.FsdTaskNotifier;
 import io.github.makaseloli.ghastfsd.content.GhastStationBlock;
 import io.github.makaseloli.ghastfsd.content.GhastStationBlockEntity;
 import io.github.makaseloli.ghastfsd.content.GhastStationData;
 import io.github.makaseloli.ghastfsd.route.RouteData;
 import io.github.makaseloli.ghastfsd.route.RouteInstruction;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.MinecraftServer;
@@ -37,8 +41,13 @@ public final class GhastAutopilot {
     private static final double DOCKING_VERTICAL_TOLERANCE = 0.75;
     private static final double CRUISE_CLEARANCE = 50.0;
     private static final double CRUISE_CLEARANCE_DISTANCE = 80.0;
-    private static final double TERRAIN_LOOK_AHEAD_DISTANCE = 128.0;
+    private static final double TERRAIN_LOOK_AHEAD_DISTANCE = 256.0;
     private static final double TERRAIN_LOOK_AHEAD_STEP = 8.0;
+    private static final double TERRAIN_CLIMB_TRIGGER = 3.0;
+    private static final double TERRAIN_CLIMB_MIN_LEAD = 12.0;
+    private static final double TERRAIN_CLIMB_MAX_LEAD = 48.0;
+    private static final double TERRAIN_CLIMB_SMOOTH_DISTANCE = 64.0;
+    private static final double TERRAIN_VERTICAL_STEP = 2.8;
 
     private GhastAutopilot() {}
 
@@ -68,16 +77,31 @@ public final class GhastAutopilot {
     }
 
     private static void tickGhast(ServerLevel level, HappyGhast ghast) {
+        GhastCouplingAttachment.syncCouplingData(ghast);
         ItemStack task = ghast.getItemBySlot(EquipmentSlot.BODY);
-        if (task.getItem() == GhastFsdContent.FSD_TASK) {
+        if (task.getItem() == GhastFsdContent.FSD_TASK && !GhastCouplingAttachment.hasChainTask(level, ghast)) {
+            HappyGhast carrier = GhastCouplingAttachment.chainHead(level, ghast);
             ghast.setItemSlot(EquipmentSlot.BODY, ItemStack.EMPTY);
-            FsdTaskAttachment.setTask(ghast, task);
-            initializeAttachedTask(ghast, RouteData.focus(task));
+            FsdTaskAttachment.setTask(carrier, task);
+            initializeAttachedTask(carrier, RouteData.focus(task));
         }
+        GhastCouplingAttachment.moveTaskToHead(level, ghast);
         task = FsdTaskAttachment.getTask(ghast);
         if (task.getItem() != GhastFsdContent.FSD_TASK) {
             FsdTaskAttachment.syncTaskFlag(ghast, false);
             syncNoAi(ghast, false);
+            UUID previousId = GhastCouplingAttachment.previous(ghast).orElse(null);
+            Vec3 virtualPosition = previousId != null && level.getEntity(previousId) == null
+                ? VirtualGhastTracker.followVirtualCoupling(ghast.getUUID())
+                : VirtualGhastTracker.virtualPosition(ghast.getUUID());
+            if (virtualPosition != null && virtualPosition.distanceToSqr(ghast.position()) > 16.0) {
+                ghast.setPos(virtualPosition);
+                ghast.setDeltaMovement(Vec3.ZERO);
+            }
+            if (GhastCouplingAttachment.tick(level, ghast)) {
+                syncVirtualCoupled(level, ghast);
+                return;
+            }
             VirtualGhastTracker.remove(ghast.getUUID());
             tickFsdTaskTemptation(level, ghast);
             return;
@@ -87,6 +111,7 @@ public final class GhastAutopilot {
         List<RouteInstruction> route = RouteData.read(task);
         if (route.isEmpty()) {
             VirtualGhastTracker.remove(ghast.getUUID());
+            syncVirtualTrain(level, ghast);
             return;
         }
 
@@ -99,7 +124,8 @@ public final class GhastAutopilot {
         if (state.pauseTicks > 0) {
             state.pauseTicks--;
             state.write(ghast);
-            VirtualGhastTracker.syncLoaded(ghast.getUUID(), level.dimension(), ghast.position(), state, route);
+            VirtualGhastTracker.syncLoaded(ghast.getUUID(), level.dimension(), ghast.position(), ghast.getYRot(), GhastCouplingAttachment.previous(ghast).orElse(null), GhastCouplingAttachment.next(ghast).orElse(null), FsdTaskNotifier.ownerUuid(task), state, route);
+            syncVirtualTrain(level, ghast);
             return;
         }
 
@@ -108,21 +134,54 @@ public final class GhastAutopilot {
         }
         RouteInstruction instruction = route.get(state.index);
         switch (instruction.type()) {
-            case "fly_to_station" -> tickStation(level, ghast, state, instruction, route.size(), RouteData.loop(task));
+            case "fly_to_station" -> tickStation(level, ghast, task, state, instruction, route.size(), RouteData.loop(task));
             default -> advance(state, route.size(), RouteData.loop(task));
         }
         RouteData.setFocus(task, state.index);
         FsdTaskAttachment.setTask(ghast, task);
         state.write(ghast);
-        VirtualGhastTracker.syncLoaded(ghast.getUUID(), level.dimension(), ghast.position(), state, route);
+        VirtualGhastTracker.syncLoaded(ghast.getUUID(), level.dimension(), ghast.position(), ghast.getYRot(), GhastCouplingAttachment.previous(ghast).orElse(null), GhastCouplingAttachment.next(ghast).orElse(null), FsdTaskNotifier.ownerUuid(task), state, route);
+        syncVirtualTrain(level, ghast);
     }
 
-    private static void tickStation(ServerLevel level, HappyGhast ghast, AutopilotState state, RouteInstruction instruction, int routeSize, boolean loop) {
+    private static void syncVirtualTrain(ServerLevel level, HappyGhast head) {
+        Set<UUID> seen = new HashSet<>();
+        HappyGhast current = head;
+        while (seen.add(current.getUUID())) {
+            GhastCouplingAttachment.syncCouplingData(current);
+            UUID nextId = GhastCouplingAttachment.next(current).orElse(null);
+            if (nextId == null) {
+                return;
+            }
+            Entity next = level.getEntity(nextId);
+            if (!(next instanceof HappyGhast nextGhast) || !nextGhast.isAlive()) {
+                return;
+            }
+            current = nextGhast;
+            syncVirtualCoupled(level, current);
+        }
+    }
+
+    private static void syncVirtualCoupled(ServerLevel level, HappyGhast ghast) {
+        VirtualGhastTracker.syncCoupled(
+            ghast.getUUID(),
+            level.dimension(),
+            ghast.position(),
+            ghast.getYRot(),
+            GhastCouplingAttachment.previous(ghast).orElse(null),
+            GhastCouplingAttachment.next(ghast).orElse(null)
+        );
+    }
+
+    private static void tickStation(ServerLevel level, HappyGhast ghast, ItemStack task, AutopilotState state, RouteInstruction instruction, int routeSize, boolean loop) {
         BlockPos station = resolveStation(level, instruction);
         if (station == null) {
+            FsdTaskNotifier.notifyMissingStation(level, ghast, task, instruction.stationName());
+            ghast.setDeltaMovement(Vec3.ZERO);
             return;
         }
         int dockingHeight = dockingHeight(level, station, instruction);
+        Direction stationDirection = stationDirection(level, station, instruction);
         Vec3 target = dockingTarget(ghast, station, dockingHeight);
         GhastStationBlock.notifyComparator(level, station);
         if (!isDockedAt(ghast, station, target, dockingHeight)) {
@@ -138,7 +197,7 @@ public final class GhastAutopilot {
         boolean wasDocked = state.docked;
         state.docked = true;
         ghast.setDeltaMovement(Vec3.ZERO);
-        alignDockedToGrid(ghast);
+        alignDockedToDirection(ghast, stationDirection);
         if (!wasDocked) {
             playArrivalSound(level, station);
         }
@@ -167,6 +226,17 @@ public final class GhastAutopilot {
         return GhastStationBlockEntity.DEFAULT_DOCKING_HEIGHT;
     }
 
+    private static Direction stationDirection(ServerLevel level, BlockPos station, RouteInstruction instruction) {
+        if (level.getBlockEntity(station) instanceof GhastStationBlockEntity stationEntity) {
+            return stationEntity.stationDirection();
+        }
+        GhastStationData.StationRef stationRef = GhastStationData.get(level).findIn(level, instruction.stationName()).orElse(null);
+        if (stationRef != null) {
+            return stationRef.direction();
+        }
+        return Direction.NORTH;
+    }
+
     private static Vec3 dockingTarget(HappyGhast ghast, BlockPos station, int dockingHeight) {
         double bottomOffset = ghast.getY() - ghast.getBoundingBox().minY;
         return new Vec3(station.getX() + 0.5, station.getY() + dockingHeight + bottomOffset, station.getZ() + 0.5);
@@ -190,27 +260,62 @@ public final class GhastAutopilot {
         }
         Vec3 direction = horizontal.normalize();
         double bottomOffset = ghast.getY() - ghast.getBoundingBox().minY;
-        double safeBottomY = terrainClearanceBottomY(level, ghast.position(), direction, horizontalDistance);
-        double cruiseBlend = Math.min(1.0, horizontalDistance / CRUISE_CLEARANCE_DISTANCE);
+        TerrainClearance clearance = terrainClearance(level, ghast, direction, horizontalDistance);
+        double safeBottomY = clearance.safeBottomY();
+        double currentBottomY = ghast.getBoundingBox().minY;
+        if (safeBottomY > currentBottomY + TERRAIN_CLIMB_TRIGGER) {
+            double urgency = 1.0 - Math.max(0.0, Math.min(1.0, clearance.firstClimbDistance() / TERRAIN_CLIMB_SMOOTH_DISTANCE));
+            double desiredBottomY = lerp(currentBottomY + TERRAIN_VERTICAL_STEP, safeBottomY, urgency);
+            double lead = Math.max(TERRAIN_CLIMB_MIN_LEAD, Math.min(TERRAIN_CLIMB_MAX_LEAD, clearance.firstClimbDistance()));
+            Vec3 horizontalPoint = horizontalDistance <= TERRAIN_CLIMB_MAX_LEAD
+                ? target
+                : ghast.position().add(direction.scale(Math.min(horizontalDistance, lead)));
+            return new Vec3(horizontalPoint.x, Math.max(target.y, desiredBottomY + bottomOffset), horizontalPoint.z);
+        }
+        if (horizontalDistance >= CRUISE_CLEARANCE_DISTANCE) {
+            return new Vec3(target.x, Math.max(target.y, safeBottomY + bottomOffset), target.z);
+        }
+        double blendStart = GhastStationBlock.ARRIVAL_RADIUS * 0.65;
+        double cruiseBlend = Math.max(0.0, Math.min(1.0, (horizontalDistance - blendStart) / (CRUISE_CLEARANCE_DISTANCE - blendStart)));
         double desiredBottomY = lerp(target.y - bottomOffset, safeBottomY, cruiseBlend);
         return new Vec3(target.x, Math.max(target.y, desiredBottomY + bottomOffset), target.z);
     }
 
-    private static double terrainClearanceBottomY(ServerLevel level, Vec3 position, Vec3 direction, double horizontalDistance) {
+    private static TerrainClearance terrainClearance(ServerLevel level, HappyGhast ghast, Vec3 direction, double horizontalDistance) {
+        Vec3 position = ghast.position();
         double lookAhead = Math.min(horizontalDistance, TERRAIN_LOOK_AHEAD_DISTANCE);
-        int highestSurface = surfaceY(level, (int)Math.floor(position.x), (int)Math.floor(position.z));
+        double currentBottomY = ghast.getBoundingBox().minY;
+        double halfWidth = Math.max(1.0, ghast.getBbWidth() * 0.5 + 1.0);
+        int highestSurface = surfaceYForWidth(level, position, direction, halfWidth);
+        double firstClimbDistance = lookAhead;
         for (double distance = TERRAIN_LOOK_AHEAD_STEP; distance <= lookAhead; distance += TERRAIN_LOOK_AHEAD_STEP) {
             Vec3 sample = position.add(direction.scale(distance));
-            highestSurface = Math.max(highestSurface, surfaceY(level, (int)Math.floor(sample.x), (int)Math.floor(sample.z)));
+            int surface = surfaceYForWidth(level, sample, direction, halfWidth);
+            highestSurface = Math.max(highestSurface, surface);
+            if (firstClimbDistance == lookAhead && surface + CRUISE_CLEARANCE > currentBottomY + TERRAIN_CLIMB_TRIGGER) {
+                firstClimbDistance = distance;
+            }
         }
-        Vec3 targetSample = position.add(direction.scale(horizontalDistance));
-        highestSurface = Math.max(highestSurface, surfaceY(level, (int)Math.floor(targetSample.x), (int)Math.floor(targetSample.z)));
-        return highestSurface + CRUISE_CLEARANCE;
+        if (horizontalDistance > lookAhead) {
+            Vec3 targetSample = position.add(direction.scale(horizontalDistance));
+            highestSurface = Math.max(highestSurface, surfaceYForWidth(level, targetSample, direction, halfWidth));
+        }
+        return new TerrainClearance(highestSurface + CRUISE_CLEARANCE, firstClimbDistance);
+    }
+
+    private static int surfaceYForWidth(ServerLevel level, Vec3 center, Vec3 direction, double halfWidth) {
+        Vec3 side = new Vec3(-direction.z, 0.0, direction.x);
+        int highest = surfaceY(level, (int)Math.floor(center.x), (int)Math.floor(center.z));
+        highest = Math.max(highest, surfaceY(level, (int)Math.floor(center.x + side.x * halfWidth), (int)Math.floor(center.z + side.z * halfWidth)));
+        highest = Math.max(highest, surfaceY(level, (int)Math.floor(center.x - side.x * halfWidth), (int)Math.floor(center.z - side.z * halfWidth)));
+        return highest;
     }
 
     private static double lerp(double from, double to, double amount) {
         return from + (to - from) * amount;
     }
+
+    private record TerrainClearance(double safeBottomY, double firstClimbDistance) {}
 
     private static void playArrivalSound(ServerLevel level, BlockPos station) {
         NoteBlockInstrument instrument = NoteBlockInstrument.HARP;
@@ -242,7 +347,7 @@ public final class GhastAutopilot {
             return;
         }
         Vec3 desired = delta.normalize().scale(Math.min(speed, delta.length()));
-        Vec3 blended = ghast.getDeltaMovement().scale(0.55).add(desired.scale(0.45));
+        Vec3 blended = ghast.getDeltaMovement().scale(0.72).add(desired.scale(0.28));
         ghast.setDeltaMovement(blended);
         ghast.setNoGravity(true);
         faceToward(ghast, blended);
@@ -273,9 +378,8 @@ public final class GhastAutopilot {
         }
     }
 
-    private static void alignDockedToGrid(HappyGhast ghast) {
-        float yaw = Math.round(ghast.getYRot() / 90.0F) * 90.0F;
-        setRotation(ghast, yaw, 0.0F);
+    private static void alignDockedToDirection(HappyGhast ghast, Direction direction) {
+        setRotation(ghast, direction.toYRot(), 0.0F);
     }
 
     private static void setRotation(HappyGhast ghast, float yaw, float pitch) {

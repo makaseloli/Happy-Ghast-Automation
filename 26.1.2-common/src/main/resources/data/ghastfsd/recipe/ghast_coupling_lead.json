@@ -1,0 +1,15 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "tools",
+  "key": {
+    "G": "minecraft:ghast_tear",
+    "L": "minecraft:lead"
+  },
+  "pattern": [
+    "G",
+    "L"
+  ],
+  "result": {
+    "id": "ghastfsd:ghast_coupling_lead"
+  }
+}

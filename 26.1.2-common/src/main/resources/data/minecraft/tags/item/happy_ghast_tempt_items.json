@@ -1,6 +1,7 @@
 {
   "replace": false,
   "values": [
-    "ghastfsd:fsd_task"
+    "ghastfsd:fsd_task",
+    "ghastfsd:ghast_coupling_lead"
   ]
 }

@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.resources.Identifier;
@@ -79,7 +80,7 @@ public final class GhastStationData extends SavedData {
         }
         String name = sanitizeName(requestedName);
         if (!name.isBlank()) {
-            StationRef ref = new StationRef(name, dimension, pos, GhastStationBlockEntity.DEFAULT_DOCKING_HEIGHT);
+            StationRef ref = new StationRef(name, dimension, pos, GhastStationBlockEntity.DEFAULT_DOCKING_HEIGHT, Direction.NORTH);
             byName.put(name, ref);
             byPosition.put(positionKey, name);
         }
@@ -94,7 +95,7 @@ public final class GhastStationData extends SavedData {
         }
         String name = sanitizeName(station.stationName());
         if (!name.isBlank()) {
-            StationRef ref = new StationRef(name, dimension, pos, station.dockingHeight());
+            StationRef ref = new StationRef(name, dimension, pos, station.dockingHeight(), station.stationDirection());
             byName.put(name, ref);
             byPosition.put(positionKey, name);
         }
@@ -124,7 +125,8 @@ public final class GhastStationData extends SavedData {
                         GhastStationBlockEntity.MIN_DOCKING_HEIGHT,
                         GhastStationBlockEntity.MAX_DOCKING_HEIGHT
                     );
-                    data.byName.put(name, new StationRef(name, dimension, pos, dockingHeight));
+                    Direction direction = GhastStationBlockEntity.parseDirection(entry.getStringOr("station_direction", Direction.NORTH.getSerializedName()), Direction.NORTH);
+                    data.byName.put(name, new StationRef(name, dimension, pos, dockingHeight, direction));
                     data.byPosition.put(key(dimension, pos), name);
                 }
             });
@@ -143,6 +145,7 @@ public final class GhastStationData extends SavedData {
             entry.putInt("y", ref.pos().getY());
             entry.putInt("z", ref.pos().getZ());
             entry.putInt("docking_height", ref.dockingHeight());
+            entry.putString("station_direction", ref.direction().getSerializedName());
             list.add(entry);
         }
         tag.put("stations", list);
@@ -153,7 +156,7 @@ public final class GhastStationData extends SavedData {
         return dimension.identifier() + "@" + pos.getX() + "," + pos.getY() + "," + pos.getZ();
     }
 
-    public record StationRef(String name, ResourceKey<Level> dimension, BlockPos pos, int dockingHeight) {
+    public record StationRef(String name, ResourceKey<Level> dimension, BlockPos pos, int dockingHeight, Direction direction) {
         boolean samePlace(ResourceKey<Level> otherDimension, BlockPos otherPos) {
             return dimension.identifier().equals(otherDimension.identifier()) && pos.equals(otherPos);
         }

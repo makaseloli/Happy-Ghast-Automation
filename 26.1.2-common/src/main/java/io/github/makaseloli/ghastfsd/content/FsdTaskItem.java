@@ -5,6 +5,7 @@ import io.github.makaseloli.ghastfsd.route.RouteData;
 import java.util.function.Consumer;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.LivingEntity;
@@ -46,6 +47,9 @@ public class FsdTaskItem extends Item {
         if (ghast.isBaby() || FsdTaskAttachment.hasTask(ghast)) {
             return InteractionResult.FAIL;
         }
+        if (target.level() instanceof ServerLevel level && GhastCouplingAttachment.hasChainTask(level, ghast)) {
+            return InteractionResult.FAIL;
+        }
         int routeCount = RouteData.count(itemStack);
         if (routeCount <= 0) {
             if (!target.level().isClientSide()) {
@@ -55,10 +59,12 @@ public class FsdTaskItem extends Item {
         }
         int focus = RouteData.focus(itemStack) + 1;
         if (!target.level().isClientSide()) {
+            HappyGhast carrier = target.level() instanceof ServerLevel level ? GhastCouplingAttachment.chainHead(level, ghast) : ghast;
             ItemStack installed = itemStack.copy();
             installed.setCount(1);
-            FsdTaskAttachment.setTask(ghast, installed);
-            GhastAutopilot.initializeAttachedTask(ghast, RouteData.focus(installed));
+            FsdTaskNotifier.rememberInstaller(installed, player);
+            FsdTaskAttachment.setTask(carrier, installed);
+            GhastAutopilot.initializeAttachedTask(carrier, RouteData.focus(installed));
             if (!player.isCreative()) {
                 itemStack.shrink(1);
             }

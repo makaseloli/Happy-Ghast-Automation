@@ -1,0 +1,25 @@
+{
+  "criteria": {
+    "has_lead": {
+      "conditions": {
+        "items": [
+          {
+            "items": "minecraft:lead"
+          }
+        ]
+      },
+      "trigger": "minecraft:inventory_changed"
+    }
+  },
+  "requirements": [
+    [
+      "has_lead"
+    ]
+  ],
+  "rewards": {
+    "recipes": [
+      "ghastfsd:ghast_coupling_lead"
+    ]
+  },
+  "sends_telemetry_event": false
+}

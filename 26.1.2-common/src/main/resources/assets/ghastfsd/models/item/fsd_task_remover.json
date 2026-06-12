@@ -1,7 +1,27 @@
 {
   "parent": "minecraft:item/handheld",
   "textures": {
-    "layer0": "minecraft:item/stick",
-    "layer1": "ghastfsd:item/fsd_task"
-  }
+    "stick": "minecraft:item/stick",
+    "task": "ghastfsd:item/fsd_task",
+    "particle": "minecraft:item/stick"
+  },
+  "elements": [
+    {
+      "from": [ 0.0, 0.0, 7.5 ],
+      "to": [ 16.0, 16.0, 8.5 ],
+      "faces": {
+        "north": { "uv": [ 0.0, 0.0, 16.0, 16.0 ], "texture": "#stick" },
+        "south": { "uv": [ 0.0, 0.0, 16.0, 16.0 ], "texture": "#stick" }
+      }
+    },
+    {
+      "from": [ 6.0, 6.0, 6.9 ],
+      "to": [ 16.0, 16.0, 9.1 ],
+      "rotation": { "origin": [ 11.0, 11.0, 8.0 ], "axis": "z", "angle": -45 },
+      "faces": {
+        "north": { "uv": [ 3.0, 3.0, 13.0, 13.0 ], "texture": "#task" },
+        "south": { "uv": [ 3.0, 3.0, 13.0, 13.0 ], "texture": "#task" }
+      }
+    }
+  ]
 }

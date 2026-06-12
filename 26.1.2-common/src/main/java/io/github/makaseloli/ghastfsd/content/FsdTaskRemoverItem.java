@@ -3,6 +3,7 @@ package io.github.makaseloli.ghastfsd.content;
 import io.github.makaseloli.ghastfsd.automation.AutopilotState;
 import io.github.makaseloli.ghastfsd.route.RouteData;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.LivingEntity;
@@ -34,15 +35,22 @@ public class FsdTaskRemoverItem extends Item {
     }
 
     private static InteractionResult removeFromHappyGhast(ItemStack stack, Player player, HappyGhast ghast) {
-        ItemStack task = FsdTaskAttachment.getTask(ghast);
+        HappyGhast carrier = ghast;
+        if (ghast.level() instanceof ServerLevel level) {
+            carrier = GhastCouplingAttachment.taskCarrier(level, ghast).orElse(ghast);
+        }
+        ItemStack task = FsdTaskAttachment.getTask(carrier);
         if (task.getItem() != GhastFsdContent.FSD_TASK) {
             return InteractionResult.PASS;
         }
         if (!ghast.level().isClientSide()) {
-            AutopilotState state = AutopilotState.read(ghast);
+            AutopilotState state = AutopilotState.read(carrier);
             RouteData.setFocus(task, state.index);
             int focus = RouteData.focus(task) + 1;
-            FsdTaskAttachment.removeTask(ghast);
+            if (ghast.level() instanceof ServerLevel level) {
+                FsdTaskNotifier.notifyTaskRemovedBy(level, carrier, task, player);
+            }
+            FsdTaskAttachment.removeTask(carrier);
             if (!player.getInventory().add(task)) {
                 player.drop(task, false);
             }

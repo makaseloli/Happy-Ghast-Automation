@@ -28,8 +28,8 @@ public final class GhastFsdScreens {
         Minecraft.getInstance().setScreen(new TaskScreen(hand, routeRoot, stations));
     }
 
-    public static void openStationEditor(BlockPos pos, String name, int dockingHeight, String arrivalInstrument, int arrivalNote) {
-        Minecraft.getInstance().setScreen(new StationScreen(pos, name, dockingHeight, arrivalInstrument, arrivalNote));
+    public static void openStationEditor(BlockPos pos, String name, int dockingHeight, String stationDirection, String arrivalInstrument, int arrivalNote) {
+        Minecraft.getInstance().setScreen(new StationScreen(pos, name, dockingHeight, stationDirection, arrivalInstrument, arrivalNote));
     }
 
     static final class StationScreen extends Screen {
@@ -37,24 +37,29 @@ public final class GhastFsdScreens {
             "harp", "basedrum", "snare", "hat", "bass", "flute", "bell", "guitar", "chime", "xylophone",
             "iron_xylophone", "cow_bell", "didgeridoo", "bit", "banjo", "pling"
         };
+        private static final String[] DIRECTIONS = { "north", "east", "south", "west" };
 
         private final BlockPos pos;
         private final String initialName;
         private final int initialDockingHeight;
+        private final String initialStationDirection;
         private final String initialArrivalInstrument;
         private final int initialArrivalNote;
         private EditBox name;
         private EditBox dockingHeight;
         private EditBox arrivalNote;
+        private String stationDirection;
         private String arrivalInstrument;
 
-        StationScreen(BlockPos pos, String initialName, int initialDockingHeight, String initialArrivalInstrument, int initialArrivalNote) {
+        StationScreen(BlockPos pos, String initialName, int initialDockingHeight, String initialStationDirection, String initialArrivalInstrument, int initialArrivalNote) {
             super(Component.translatable("screen.ghastfsd.station"));
             this.pos = pos;
             this.initialName = initialName;
             this.initialDockingHeight = initialDockingHeight;
+            this.initialStationDirection = normalizeDirection(initialStationDirection);
             this.initialArrivalInstrument = normalizeInstrument(initialArrivalInstrument);
             this.initialArrivalNote = initialArrivalNote;
+            this.stationDirection = this.initialStationDirection;
             this.arrivalInstrument = this.initialArrivalInstrument;
         }
 
@@ -76,21 +81,27 @@ public final class GhastFsdScreens {
             dockingHeight.setValue(Integer.toString(initialDockingHeight));
             addRenderableWidget(dockingHeight);
 
-            addLabel(center - 170, top + 56, 92, "screen.ghastfsd.arrival_instrument");
-            addRenderableWidget(Button.builder(instrumentLabel(), button -> {
-                arrivalInstrument = nextInstrument(arrivalInstrument);
-                button.setMessage(instrumentLabel());
+            addLabel(center - 170, top + 56, 92, "screen.ghastfsd.station_direction");
+            addRenderableWidget(Button.builder(directionLabel(), button -> {
+                stationDirection = next(stationDirection, DIRECTIONS);
+                button.setMessage(directionLabel());
             }).bounds(center - 72, top + 56, 222, 20).build());
 
-            addLabel(center - 170, top + 84, 92, "screen.ghastfsd.arrival_note");
-            arrivalNote = new EditBox(font, center - 72, top + 84, 64, 20, Component.translatable("screen.ghastfsd.arrival_note"));
+            addLabel(center - 170, top + 84, 92, "screen.ghastfsd.arrival_instrument");
+            addRenderableWidget(Button.builder(instrumentLabel(), button -> {
+                arrivalInstrument = next(arrivalInstrument, INSTRUMENTS);
+                button.setMessage(instrumentLabel());
+            }).bounds(center - 72, top + 84, 222, 20).build());
+
+            addLabel(center - 170, top + 112, 92, "screen.ghastfsd.arrival_note");
+            arrivalNote = new EditBox(font, center - 72, top + 112, 64, 20, Component.translatable("screen.ghastfsd.arrival_note"));
             arrivalNote.setMaxLength(2);
             arrivalNote.setHint(Component.literal("12"));
             arrivalNote.setValue(Integer.toString(initialArrivalNote));
             addRenderableWidget(arrivalNote);
 
-            addRenderableWidget(Button.builder(Component.translatable("button.ghastfsd.save"), button -> save()).bounds(center - 72, top + 118, 106, 20).build());
-            addRenderableWidget(Button.builder(Component.translatable("gui.cancel"), button -> onClose()).bounds(center + 44, top + 118, 106, 20).build());
+            addRenderableWidget(Button.builder(Component.translatable("button.ghastfsd.save"), button -> save()).bounds(center - 72, top + 146, 106, 20).build());
+            addRenderableWidget(Button.builder(Component.translatable("gui.cancel"), button -> onClose()).bounds(center + 44, top + 146, 106, 20).build());
             setInitialFocus(name);
         }
 
@@ -101,6 +112,7 @@ public final class GhastFsdScreens {
                     pos,
                     name.getValue(),
                     parseInt(dockingHeight, initialDockingHeight),
+                    stationDirection,
                     arrivalInstrument,
                     parseInt(arrivalNote, initialArrivalNote)
                 )));
@@ -116,13 +128,17 @@ public final class GhastFsdScreens {
             return Component.translatable("instrument.ghastfsd." + arrivalInstrument);
         }
 
-        private static String nextInstrument(String current) {
-            for (int i = 0; i < INSTRUMENTS.length; i++) {
-                if (INSTRUMENTS[i].equals(current)) {
-                    return INSTRUMENTS[(i + 1) % INSTRUMENTS.length];
+        private Component directionLabel() {
+            return Component.translatable("direction.ghastfsd." + stationDirection);
+        }
+
+        private static String next(String current, String[] options) {
+            for (int i = 0; i < options.length; i++) {
+                if (options[i].equals(current)) {
+                    return options[(i + 1) % options.length];
                 }
             }
-            return INSTRUMENTS[0];
+            return options[0];
         }
 
         private static String normalizeInstrument(String instrument) {
@@ -132,6 +148,15 @@ public final class GhastFsdScreens {
                 }
             }
             return INSTRUMENTS[0];
+        }
+
+        private static String normalizeDirection(String direction) {
+            for (String candidate : DIRECTIONS) {
+                if (candidate.equals(direction)) {
+                    return candidate;
+                }
+            }
+            return DIRECTIONS[0];
         }
 
         private static int parseInt(EditBox box, int fallback) {

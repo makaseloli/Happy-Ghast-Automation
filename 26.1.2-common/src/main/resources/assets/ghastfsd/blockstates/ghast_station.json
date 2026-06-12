@@ -1,7 +1,19 @@
 {
   "variants": {
-    "": {
+    "facing=north": {
       "model": "ghastfsd:block/ghast_station"
+    },
+    "facing=east": {
+      "model": "ghastfsd:block/ghast_station",
+      "y": 90
+    },
+    "facing=south": {
+      "model": "ghastfsd:block/ghast_station",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "ghastfsd:block/ghast_station",
+      "y": 270
     }
   }
 }

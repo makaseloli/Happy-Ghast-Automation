@@ -21,6 +21,7 @@ public final class GhastFsdContent {
     public static final Identifier GHAST_STATION_BLOCK_ENTITY_ID = ModUtils.id("ghast_station");
     public static final Identifier FSD_TASK_ID = ModUtils.id("fsd_task");
     public static final Identifier FSD_TASK_REMOVER_ID = ModUtils.id("fsd_task_remover");
+    public static final Identifier GHAST_COUPLING_LEAD_ID = ModUtils.id("ghast_coupling_lead");
     public static final Identifier ITEM_GROUP_ID = ModUtils.id("happy_ghast_automation");
     public static final ResourceKey<CreativeModeTab> ITEM_GROUP_KEY = ResourceKey.create(Registries.CREATIVE_MODE_TAB, ITEM_GROUP_ID);
 
@@ -50,6 +51,12 @@ public final class GhastFsdContent {
     public static final FsdTaskRemoverItem FSD_TASK_REMOVER = new FsdTaskRemoverItem(
         new Item.Properties()
             .setId(ResourceKey.create(Registries.ITEM, FSD_TASK_REMOVER_ID))
+            .stacksTo(1)
+    );
+
+    public static final GhastCouplingLeadItem GHAST_COUPLING_LEAD = new GhastCouplingLeadItem(
+        new Item.Properties()
+            .setId(ResourceKey.create(Registries.ITEM, GHAST_COUPLING_LEAD_ID))
             .stacksTo(1)
     );
 

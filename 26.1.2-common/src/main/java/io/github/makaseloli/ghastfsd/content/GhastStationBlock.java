@@ -12,15 +12,20 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.animal.happyghast.HappyGhast;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.BaseEntityBlock;
 import net.minecraft.world.level.block.EntityBlock;
+import net.minecraft.world.level.block.HorizontalDirectionalBlock;
+import net.minecraft.world.level.block.Mirror;
 import net.minecraft.world.level.block.RenderShape;
+import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityTicker;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.AABB;
 
@@ -31,6 +36,7 @@ public class GhastStationBlock extends BaseEntityBlock implements EntityBlock {
 
     public GhastStationBlock(BlockBehaviour.Properties properties) {
         super(properties);
+        registerDefaultState(stateDefinition.any().setValue(HorizontalDirectionalBlock.FACING, Direction.NORTH));
     }
 
     @Override
@@ -41,6 +47,39 @@ public class GhastStationBlock extends BaseEntityBlock implements EntityBlock {
     @Override
     public BlockEntity newBlockEntity(BlockPos pos, BlockState state) {
         return new GhastStationBlockEntity(pos, state);
+    }
+
+    @Override
+    public BlockState getStateForPlacement(BlockPlaceContext context) {
+        Direction direction = context.getPlayer() == null ? Direction.NORTH : context.getPlayer().getDirection();
+        return defaultBlockState().setValue(HorizontalDirectionalBlock.FACING, direction);
+    }
+
+    @Override
+    protected void createBlockStateDefinition(StateDefinition.Builder<net.minecraft.world.level.block.Block, BlockState> builder) {
+        builder.add(HorizontalDirectionalBlock.FACING);
+    }
+
+    @Override
+    protected BlockState rotate(BlockState state, Rotation rotation) {
+        return state.setValue(HorizontalDirectionalBlock.FACING, rotation.rotate(state.getValue(HorizontalDirectionalBlock.FACING)));
+    }
+
+    @Override
+    protected BlockState mirror(BlockState state, Mirror mirror) {
+        return state.rotate(mirror.getRotation(state.getValue(HorizontalDirectionalBlock.FACING)));
+    }
+
+    @Override
+    protected void onPlace(BlockState state, Level level, BlockPos pos, BlockState oldState, boolean movedByPiston) {
+        super.onPlace(state, level, pos, oldState, movedByPiston);
+        if (level.isClientSide() || !state.hasProperty(HorizontalDirectionalBlock.FACING)) {
+            return;
+        }
+        if (!oldState.is(state.getBlock()) || !oldState.hasProperty(HorizontalDirectionalBlock.FACING)
+            || oldState.getValue(HorizontalDirectionalBlock.FACING) != state.getValue(HorizontalDirectionalBlock.FACING)) {
+            syncStationDirection(level, pos, state);
+        }
     }
 
     @Override
@@ -133,14 +172,26 @@ public class GhastStationBlock extends BaseEntityBlock implements EntityBlock {
         if (!(level instanceof ServerLevel serverLevel)) {
             return;
         }
+        station.syncDirectionFromBlockState(level.getBlockState(pos));
         String name = GhastStationData.sanitizeName(station.stationName());
         if (name.isBlank()) {
             return;
         }
         GhastStationData data = GhastStationData.get(serverLevel);
         GhastStationData.StationRef indexed = data.find(name).orElse(null);
-        if (indexed == null || !indexed.samePlace(serverLevel.dimension(), pos) || indexed.dockingHeight() != station.dockingHeight()) {
+        if (indexed == null
+            || !indexed.samePlace(serverLevel.dimension(), pos)
+            || indexed.dockingHeight() != station.dockingHeight()
+            || indexed.direction() != station.stationDirection()) {
             data.update(serverLevel.dimension(), pos, station);
         }
+    }
+
+    private static void syncStationDirection(Level level, BlockPos pos, BlockState state) {
+        if (!(level instanceof ServerLevel serverLevel) || !(level.getBlockEntity(pos) instanceof GhastStationBlockEntity station)) {
+            return;
+        }
+        station.syncDirectionFromBlockState(state);
+        syncStationIndex(serverLevel, pos, station);
     }
 }

@@ -20,7 +20,7 @@ public class ModClient implements ClientModInitializer {
             GhastFsdScreens.openTaskEditor(payload.hand(), payload.routeRoot(), payload.stations())
         );
         ClientPlayNetworking.registerGlobalReceiver(GhastFsdPayloads.OpenStationEditorPayload.TYPE, (payload, context) ->
-            GhastFsdScreens.openStationEditor(payload.pos(), payload.name(), payload.dockingHeight(), payload.arrivalInstrument(), payload.arrivalNote())
+            GhastFsdScreens.openStationEditor(payload.pos(), payload.name(), payload.dockingHeight(), payload.stationDirection(), payload.arrivalInstrument(), payload.arrivalNote())
         );
     }
 
