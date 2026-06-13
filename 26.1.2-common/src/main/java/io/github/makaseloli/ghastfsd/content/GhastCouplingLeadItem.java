@@ -1,6 +1,7 @@
 package io.github.makaseloli.ghastfsd.content;
 
 import java.util.UUID;
+import io.github.makaseloli.ghastfsd.network.GhastControlSync;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.nbt.CompoundTag;
@@ -63,6 +64,7 @@ public class GhastCouplingLeadItem extends Item {
             player.sendOverlayMessage(Component.translatable("error.ghastfsd.coupling_failed"));
             return InteractionResult.FAIL;
         }
+        GhastControlSync.syncChain(level, selected);
         clearSelection(stack);
         player.sendOverlayMessage(Component.translatable("message.ghastfsd.coupling_linked", GhastCouplingAttachment.chainLength(level, selected)));
         return InteractionResult.SUCCESS;
@@ -77,6 +79,9 @@ public class GhastCouplingLeadItem extends Item {
         }
         if (!GhastCouplingAttachment.cutAt(target)) {
             return InteractionResult.PASS;
+        }
+        if (target.level() instanceof ServerLevel level) {
+            GhastControlSync.syncNearby(level, target);
         }
         player.sendOverlayMessage(Component.translatable("message.ghastfsd.coupling_cut"));
         return InteractionResult.SUCCESS;

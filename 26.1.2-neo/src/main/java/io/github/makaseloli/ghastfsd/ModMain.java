@@ -74,6 +74,7 @@ public class ModMain {
         registrar.playToServer(GhastFsdPayloads.SaveStationPayload.TYPE, GhastFsdPayloads.SaveStationPayload.STREAM_CODEC, (payload, context) -> GhastFsdPayloads.handleSaveStation(payload, (net.minecraft.server.level.ServerPlayer) context.player()));
         registrar.playToClient(GhastFsdPayloads.OpenTaskEditorPayload.TYPE, GhastFsdPayloads.OpenTaskEditorPayload.STREAM_CODEC);
         registrar.playToClient(GhastFsdPayloads.OpenStationEditorPayload.TYPE, GhastFsdPayloads.OpenStationEditorPayload.STREAM_CODEC);
+        registrar.playToClient(GhastFsdPayloads.GhastControlStatePayload.TYPE, GhastFsdPayloads.GhastControlStatePayload.STREAM_CODEC);
     }
 
     private void serverTick(ServerTickEvent.Post event) {

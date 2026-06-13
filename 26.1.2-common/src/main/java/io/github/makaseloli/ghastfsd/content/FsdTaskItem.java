@@ -1,6 +1,7 @@
 package io.github.makaseloli.ghastfsd.content;
 
 import io.github.makaseloli.ghastfsd.automation.GhastAutopilot;
+import io.github.makaseloli.ghastfsd.network.GhastControlSync;
 import io.github.makaseloli.ghastfsd.route.RouteData;
 import java.util.function.Consumer;
 import net.minecraft.ChatFormatting;
@@ -64,6 +65,9 @@ public class FsdTaskItem extends Item {
             installed.setCount(1);
             FsdTaskNotifier.rememberInstaller(installed, player);
             FsdTaskAttachment.setTask(carrier, installed);
+            if (target.level() instanceof ServerLevel level) {
+                GhastControlSync.syncChain(level, carrier);
+            }
             GhastAutopilot.initializeAttachedTask(carrier, RouteData.focus(installed));
             if (!player.isCreative()) {
                 itemStack.shrink(1);

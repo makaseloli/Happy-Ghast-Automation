@@ -2,6 +2,7 @@ package io.github.makaseloli.ghastfsd.client;
 
 import io.github.makaseloli.ghastfsd.Constants;
 import io.github.makaseloli.ghastfsd.content.GhastFsdContent;
+import io.github.makaseloli.ghastfsd.network.GhastControlSync;
 import io.github.makaseloli.ghastfsd.network.GhastFsdPayloads;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
@@ -25,6 +26,12 @@ public class ModClient {
         event.register(GhastFsdPayloads.OpenStationEditorPayload.TYPE, (payload, context) ->
             GhastFsdScreens.openStationEditor(payload.pos(), payload.name(), payload.dockingHeight(), payload.stationDirection(), payload.arrivalInstrument(), payload.arrivalNote(), payload.groupName())
         );
+        event.register(GhastFsdPayloads.GhastControlStatePayload.TYPE, (payload, context) -> {
+            Minecraft minecraft = Minecraft.getInstance();
+            if (minecraft.level != null) {
+                GhastControlSync.apply(minecraft.level, payload.state());
+            }
+        });
     }
 
     @SubscribeEvent

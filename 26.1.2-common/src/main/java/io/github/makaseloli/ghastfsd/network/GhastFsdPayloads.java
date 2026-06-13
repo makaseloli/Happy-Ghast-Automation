@@ -3,6 +3,7 @@ package io.github.makaseloli.ghastfsd.network;
 import io.github.makaseloli.ghastfsd.ModUtils;
 import io.github.makaseloli.ghastfsd.content.FsdTaskAttachment;
 import io.github.makaseloli.ghastfsd.content.FsdTaskNotifier;
+import io.github.makaseloli.ghastfsd.content.GhastControlState;
 import io.github.makaseloli.ghastfsd.content.GhastCouplingAttachment;
 import io.github.makaseloli.ghastfsd.content.GhastFsdContent;
 import io.github.makaseloli.ghastfsd.content.GhastStationBlockEntity;
@@ -23,7 +24,6 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
-import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.animal.happyghast.HappyGhast;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
@@ -195,6 +195,38 @@ public final class GhastFsdPayloads {
         }
     }
 
+    public record GhastControlStatePayload(int entityId, boolean hasTask, String couplingNext, String couplingPrevious) implements CustomPacketPayload {
+        public static final Type<GhastControlStatePayload> TYPE = new Type<>(ModUtils.id("ghast_control_state"));
+        public static final StreamCodec<RegistryFriendlyByteBuf, GhastControlStatePayload> STREAM_CODEC = StreamCodec.ofMember(
+            GhastControlStatePayload::write,
+            GhastControlStatePayload::read
+        );
+
+        private static GhastControlStatePayload read(RegistryFriendlyByteBuf buf) {
+            return new GhastControlStatePayload(buf.readVarInt(), buf.readBoolean(), buf.readUtf(36), buf.readUtf(36));
+        }
+
+        public static GhastControlStatePayload from(GhastControlState state) {
+            return new GhastControlStatePayload(state.entityId(), state.hasTask(), state.couplingNext(), state.couplingPrevious());
+        }
+
+        public GhastControlState state() {
+            return new GhastControlState(entityId, hasTask, couplingNext, couplingPrevious);
+        }
+
+        private void write(RegistryFriendlyByteBuf buf) {
+            buf.writeVarInt(entityId);
+            buf.writeBoolean(hasTask);
+            buf.writeUtf(couplingNext == null ? "" : couplingNext, 36);
+            buf.writeUtf(couplingPrevious == null ? "" : couplingPrevious, 36);
+        }
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
     public static void handleSaveTaskRoute(SaveTaskRoutePayload payload, ServerPlayer player) {
         ItemStack stack = player.getItemInHand(payload.hand());
         if (stack.getItem() == GhastFsdContent.FSD_TASK) {
@@ -258,7 +290,7 @@ public final class GhastFsdPayloads {
     }
 
     private static String dockedGroupName(ServerLevel level, BlockPos pos) {
-        for (HappyGhast ghast : level.getEntities(EntityType.HAPPY_GHAST, ghast -> ghast.isAlive() && GhastStationBlock.arrivalBox(pos).intersects(ghast.getBoundingBox()))) {
+        for (HappyGhast ghast : level.getEntitiesOfClass(HappyGhast.class, GhastStationBlock.arrivalBox(pos), HappyGhast::isAlive)) {
             HappyGhast carrier = GhastCouplingAttachment.taskCarrier(level, ghast).orElse(ghast);
             ItemStack task = FsdTaskAttachment.getTask(carrier);
             if (task.getItem() == GhastFsdContent.FSD_TASK) {
@@ -269,12 +301,13 @@ public final class GhastFsdPayloads {
     }
 
     private static void applyDockedGroupName(ServerLevel level, BlockPos pos, String name) {
-        for (HappyGhast ghast : level.getEntities(EntityType.HAPPY_GHAST, ghast -> ghast.isAlive() && GhastStationBlock.arrivalBox(pos).intersects(ghast.getBoundingBox()))) {
+        for (HappyGhast ghast : level.getEntitiesOfClass(HappyGhast.class, GhastStationBlock.arrivalBox(pos), HappyGhast::isAlive)) {
             HappyGhast carrier = GhastCouplingAttachment.taskCarrier(level, ghast).orElse(ghast);
             ItemStack task = FsdTaskAttachment.getTask(carrier);
             if (task.getItem() == GhastFsdContent.FSD_TASK) {
                 FsdTaskNotifier.setGroupName(task, name);
                 FsdTaskAttachment.setTask(carrier, task);
+                GhastControlSync.syncChain(level, carrier);
             }
         }
     }

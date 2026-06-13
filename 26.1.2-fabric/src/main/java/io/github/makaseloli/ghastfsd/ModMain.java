@@ -43,6 +43,7 @@ public class ModMain implements ModInitializer {
         PayloadTypeRegistry.serverboundPlay().register(GhastFsdPayloads.SaveStationPayload.TYPE, GhastFsdPayloads.SaveStationPayload.STREAM_CODEC);
         PayloadTypeRegistry.clientboundPlay().register(GhastFsdPayloads.OpenTaskEditorPayload.TYPE, GhastFsdPayloads.OpenTaskEditorPayload.STREAM_CODEC);
         PayloadTypeRegistry.clientboundPlay().register(GhastFsdPayloads.OpenStationEditorPayload.TYPE, GhastFsdPayloads.OpenStationEditorPayload.STREAM_CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(GhastFsdPayloads.GhastControlStatePayload.TYPE, GhastFsdPayloads.GhastControlStatePayload.STREAM_CODEC);
         ServerPlayNetworking.registerGlobalReceiver(GhastFsdPayloads.SaveTaskRoutePayload.TYPE, (payload, context) -> GhastFsdPayloads.handleSaveTaskRoute(payload, context.player()));
         ServerPlayNetworking.registerGlobalReceiver(GhastFsdPayloads.RequestTaskEditorPayload.TYPE, (payload, context) -> GhastFsdPayloads.handleRequestTaskEditor(payload, context.player()));
         ServerPlayNetworking.registerGlobalReceiver(GhastFsdPayloads.RequestStationEditorPayload.TYPE, (payload, context) -> GhastFsdPayloads.handleRequestStationEditor(payload, context.player()));

@@ -1,6 +1,7 @@
 package io.github.makaseloli.ghastfsd.content;
 
 import io.github.makaseloli.ghastfsd.automation.AutopilotState;
+import io.github.makaseloli.ghastfsd.network.GhastControlSync;
 import io.github.makaseloli.ghastfsd.route.RouteData;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
@@ -51,6 +52,9 @@ public class FsdTaskRemoverItem extends Item {
                 FsdTaskNotifier.notifyTaskRemovedBy(level, carrier, task, player);
             }
             FsdTaskAttachment.removeTask(carrier);
+            if (ghast.level() instanceof ServerLevel level) {
+                GhastControlSync.syncChain(level, carrier);
+            }
             if (!player.getInventory().add(task)) {
                 player.drop(task, false);
             }

@@ -1,6 +1,7 @@
 package io.github.makaseloli.ghastfsd.client;
 
 import io.github.makaseloli.ghastfsd.content.GhastFsdContent;
+import io.github.makaseloli.ghastfsd.network.GhastControlSync;
 import io.github.makaseloli.ghastfsd.network.GhastFsdPayloads;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -22,6 +23,12 @@ public class ModClient implements ClientModInitializer {
         ClientPlayNetworking.registerGlobalReceiver(GhastFsdPayloads.OpenStationEditorPayload.TYPE, (payload, context) ->
             GhastFsdScreens.openStationEditor(payload.pos(), payload.name(), payload.dockingHeight(), payload.stationDirection(), payload.arrivalInstrument(), payload.arrivalNote(), payload.groupName())
         );
+        ClientPlayNetworking.registerGlobalReceiver(GhastFsdPayloads.GhastControlStatePayload.TYPE, (payload, context) -> {
+            Minecraft minecraft = Minecraft.getInstance();
+            if (minecraft.level != null) {
+                GhastControlSync.apply(minecraft.level, payload.state());
+            }
+        });
     }
 
     private static void openTaskEditorFromAttackKey(Minecraft minecraft) {

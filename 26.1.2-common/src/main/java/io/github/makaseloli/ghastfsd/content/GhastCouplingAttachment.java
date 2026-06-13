@@ -1,5 +1,4 @@
 package io.github.makaseloli.ghastfsd.content;
-
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -79,6 +78,10 @@ public final class GhastCouplingAttachment {
     public static int chainLength(ServerLevel level, HappyGhast ghast) {
         HappyGhast head = head(level, ghast);
         return chain(level, head).size();
+    }
+
+    public static List<HappyGhast> chainMembers(ServerLevel level, HappyGhast ghast) {
+        return List.copyOf(chain(level, head(level, ghast)));
     }
 
     public static HappyGhast chainHead(ServerLevel level, HappyGhast ghast) {

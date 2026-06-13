@@ -1,5 +1,4 @@
 package io.github.makaseloli.ghastfsd.content;
-
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.entity.animal.happyghast.HappyGhast;

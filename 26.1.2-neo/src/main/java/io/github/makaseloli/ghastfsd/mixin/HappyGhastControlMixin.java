@@ -1,7 +1,6 @@
 package io.github.makaseloli.ghastfsd.mixin;
 
-import io.github.makaseloli.ghastfsd.content.FsdTaskAttachment;
-import io.github.makaseloli.ghastfsd.content.GhastCouplingAttachment;
+import io.github.makaseloli.ghastfsd.content.GhastControlState;
 import io.github.makaseloli.ghastfsd.content.GhastFsdTaskCarrier;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.animal.happyghast.HappyGhast;
@@ -26,14 +25,14 @@ public class HappyGhastControlMixin implements GhastFsdTaskCarrier {
 
     @Inject(method = "getControllingPassenger", at = @At("HEAD"), cancellable = true)
     private void ghastfsd$getControllingPassenger(CallbackInfoReturnable<LivingEntity> callback) {
-        if (ghastfsd$hasTaskForControl() || ghastfsd$isCoupledFollower()) {
+        if (ghastfsd$shouldBlockControl()) {
             callback.setReturnValue(null);
         }
     }
 
     @Inject(method = "getRiddenInput", at = @At("HEAD"), cancellable = true)
     private void ghastfsd$getRiddenInput(Player player, Vec3 input, CallbackInfoReturnable<Vec3> callback) {
-        if (ghastfsd$hasTaskForControl() || ghastfsd$isCoupledFollower()) {
+        if (ghastfsd$shouldBlockControl()) {
             callback.setReturnValue(Vec3.ZERO);
         }
     }
@@ -41,14 +40,14 @@ public class HappyGhastControlMixin implements GhastFsdTaskCarrier {
     @Inject(method = "getRiddenRotation", at = @At("HEAD"), cancellable = true)
     private void ghastfsd$getRiddenRotation(LivingEntity passenger, CallbackInfoReturnable<Vec2> callback) {
         HappyGhast ghast = (HappyGhast) (Object) this;
-        if (ghastfsd$hasTaskForControl() || ghastfsd$isCoupledFollower()) {
+        if (ghastfsd$shouldBlockControl()) {
             callback.setReturnValue(new Vec2(ghast.getXRot(), ghast.getYRot()));
         }
     }
 
     @Inject(method = "tickRidden", at = @At("HEAD"), cancellable = true)
     private void ghastfsd$tickRidden(Player player, Vec3 input, CallbackInfo callback) {
-        if (ghastfsd$hasTaskForControl() || ghastfsd$isCoupledFollower()) {
+        if (ghastfsd$shouldBlockControl()) {
             callback.cancel();
         }
     }
@@ -84,14 +83,8 @@ public class HappyGhastControlMixin implements GhastFsdTaskCarrier {
     }
 
     @Unique
-    private boolean ghastfsd$hasTaskForControl() {
+    private boolean ghastfsd$shouldBlockControl() {
         HappyGhast ghast = (HappyGhast) (Object) this;
-        return ghastfsd$hasTask || FsdTaskAttachment.hasStoredTask(ghast);
-    }
-
-    @Unique
-    private boolean ghastfsd$isCoupledFollower() {
-        HappyGhast ghast = (HappyGhast) (Object) this;
-        return (ghastfsd$couplingPrevious != null && !ghastfsd$couplingPrevious.isBlank()) || GhastCouplingAttachment.previous(ghast).isPresent();
+        return GhastControlState.shouldBlockControl(ghast);
     }
 }

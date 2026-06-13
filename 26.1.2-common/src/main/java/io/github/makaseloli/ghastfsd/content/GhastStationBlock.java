@@ -11,7 +11,6 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
-import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.animal.happyghast.HappyGhast;
 import net.minecraft.world.entity.player.Player;
@@ -44,8 +43,6 @@ import net.minecraft.world.phys.AABB;
 public class GhastStationBlock extends BaseEntityBlock implements EntityBlock, SimpleWaterloggedBlock {
     public static final MapCodec<GhastStationBlock> CODEC = simpleCodec(GhastStationBlock::new);
     public static final BooleanProperty WATERLOGGED = BlockStateProperties.WATERLOGGED;
-    public static final double ARRIVAL_RADIUS = 8.0;
-    public static final double ARRIVAL_HEIGHT = 8.0;
     private static final int STATION_CHECK_INTERVAL_TICKS = 10;
 
     public GhastStationBlock(BlockBehaviour.Properties properties) {
@@ -200,9 +197,6 @@ public class GhastStationBlock extends BaseEntityBlock implements EntityBlock, S
 
     public static boolean hasHappyGhast(Level level, BlockPos pos) {
         AABB box = arrivalBox(pos);
-        if (level instanceof ServerLevel serverLevel) {
-            return !serverLevel.getEntities(EntityType.HAPPY_GHAST, ghast -> ghast.isAlive() && box.intersects(ghast.getBoundingBox())).isEmpty();
-        }
         return !level.getEntitiesOfClass(HappyGhast.class, box, HappyGhast::isAlive).isEmpty();
     }
 
@@ -213,14 +207,7 @@ public class GhastStationBlock extends BaseEntityBlock implements EntityBlock, S
     }
 
     public static AABB arrivalBox(BlockPos pos) {
-        return new AABB(
-            pos.getX() - ARRIVAL_RADIUS,
-            pos.getY(),
-            pos.getZ() - ARRIVAL_RADIUS,
-            pos.getX() + 1.0 + ARRIVAL_RADIUS,
-            pos.getY() + GhastStationBlockEntity.MAX_DOCKING_HEIGHT + ARRIVAL_HEIGHT,
-            pos.getZ() + 1.0 + ARRIVAL_RADIUS
-        );
+        return GhastStationGeometry.arrivalBox(pos);
     }
 
     public static boolean isRedstonePowered(Level level, BlockPos pos) {

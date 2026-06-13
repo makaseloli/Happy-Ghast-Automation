@@ -17,6 +17,7 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.entity.animal.happyghast.HappyGhast;
 import net.minecraft.util.datafix.DataFixTypes;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.saveddata.SavedData;
@@ -46,34 +47,49 @@ final class VirtualGhastTracker {
 
     static void syncLoaded(UUID id, ResourceKey<Level> dimension, Vec3 position, float yaw, UUID previous, UUID next, UUID owner, String groupName, AutopilotState state, List<RouteInstruction> route) {
         Data data = data(stateServer());
-        VirtualGhast virtual = data.ghasts.remove(id);
+        VirtualGhast virtual = data.ghasts.get(id);
         String missingStationNotified = "";
         String storedGroupName = FsdTaskNotifier.sanitizeGroupName(groupName);
         if (virtual != null && virtual.dimension.identifier().equals(dimension.identifier())) {
-            state.index = virtual.index;
-            state.waitTicks = virtual.waitTicks;
             missingStationNotified = virtual.missingStationNotified;
         }
-        data.ghasts.put(id, new VirtualGhast(dimension, position, yaw, previous, next, owner, storedGroupName, missingStationNotified, state.index, state.waitTicks, route));
+        data.ghasts.put(id, new VirtualGhast(dimension, position, yaw, previous, next, owner, storedGroupName, missingStationNotified, state.index, state.waitTicks, route, true));
         data.setDirty();
     }
 
     static void syncCoupled(UUID id, ResourceKey<Level> dimension, Vec3 position, float yaw, UUID previous, UUID next) {
         Data data = data(stateServer());
-        data.ghasts.put(id, new VirtualGhast(dimension, position, yaw, previous, next, null, "", "", 0, 0, List.of()));
+        data.ghasts.put(id, new VirtualGhast(dimension, position, yaw, previous, next, null, "", "", 0, 0, List.of(), true));
         data.setDirty();
     }
 
-    static Vec3 virtualPosition(UUID id) {
+    static boolean restoreUnloaded(HappyGhast ghast, AutopilotState state) {
+        Data data = data(stateServer());
+        VirtualGhast virtual = data.ghasts.get(ghast.getUUID());
+        if (virtual == null || virtual.loaded || !sameDimension(ghast, virtual)) {
+            return false;
+        }
+        ghast.setPos(virtual.position);
+        ghast.setDeltaMovement(Vec3.ZERO);
+        setRotation(ghast, virtual.yaw, 0.0F);
+        state.index = virtual.index;
+        state.waitTicks = virtual.waitTicks;
+        return true;
+    }
+
+    static Vec3 unloadedPosition(UUID id) {
         VirtualGhast virtual = data(stateServer()).ghasts.get(id);
-        return virtual == null ? null : virtual.position;
+        return virtual == null || virtual.loaded ? null : virtual.position;
     }
 
     static Vec3 followVirtualCoupling(UUID id) {
         Data data = data(stateServer());
         VirtualGhast virtual = data.ghasts.get(id);
-        if (virtual == null || virtual.previous == null || !virtual.route.isEmpty()) {
-            return virtual == null ? null : virtual.position;
+        if (virtual == null || virtual.loaded) {
+            return null;
+        }
+        if (virtual.previous == null || !virtual.route.isEmpty()) {
+            return virtual.position;
         }
         VirtualGhast previous = data.ghasts.get(virtual.previous);
         if (previous == null || !previous.dimension.identifier().equals(virtual.dimension.identifier())) {
@@ -144,6 +160,21 @@ final class VirtualGhastTracker {
         return server.overworld().getDataStorage().computeIfAbsent(TYPE);
     }
 
+    private static boolean sameDimension(HappyGhast ghast, VirtualGhast virtual) {
+        return ghast.level().dimension().identifier().equals(virtual.dimension.identifier());
+    }
+
+    private static void setRotation(HappyGhast ghast, float yaw, float pitch) {
+        ghast.setYRot(yaw);
+        ghast.yRotO = yaw;
+        ghast.yBodyRot = yaw;
+        ghast.yBodyRotO = yaw;
+        ghast.yHeadRot = yaw;
+        ghast.yHeadRotO = yaw;
+        ghast.setXRot(pitch);
+        ghast.xRotO = pitch;
+    }
+
     static final class Data extends SavedData {
         static final Codec<Data> CODEC = CompoundTag.CODEC.xmap(Data::fromTag, Data::toTag);
         final Map<UUID, VirtualGhast> ghasts = new HashMap<>();
@@ -183,7 +214,8 @@ final class VirtualGhastTracker {
         String missingStationNotified,
         int index,
         int waitTicks,
-        List<RouteInstruction> route
+        List<RouteInstruction> route,
+        boolean loaded
     ) {
         static VirtualGhast fromTag(CompoundTag tag) {
             ResourceKey<Level> dimension = ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION, Identifier.parse(tag.getStringOr("dimension", Level.OVERWORLD.identifier().toString())));
@@ -210,7 +242,8 @@ final class VirtualGhastTracker {
                     cmd.getStringOr("label", "")
                 )));
             }
-            return new VirtualGhast(dimension, position, yaw, previous, next, owner, groupName, missingStationNotified, index, waitTicks, List.copyOf(route));
+            boolean loaded = tag.getBooleanOr("loaded", false);
+            return new VirtualGhast(dimension, position, yaw, previous, next, owner, groupName, missingStationNotified, index, waitTicks, List.copyOf(route), loaded);
         }
 
         CompoundTag toTag() {
@@ -237,6 +270,7 @@ final class VirtualGhastTracker {
             }
             tag.putInt("index", index);
             tag.putInt("wait_ticks", waitTicks);
+            tag.putBoolean("loaded", loaded);
             ListTag routeTag = new ListTag();
             for (RouteInstruction instruction : route) {
                 CompoundTag cmd = new CompoundTag();
@@ -259,7 +293,7 @@ final class VirtualGhastTracker {
 
         VirtualGhast tick(MinecraftServer server) {
             if (route.isEmpty()) {
-                return this;
+                return new VirtualGhast(dimension, position, yaw, previous, next, owner, groupName, missingStationNotified, index, waitTicks, route, false);
             }
             int nextIndex = Math.floorMod(index, route.size());
             int nextWait = waitTicks;
@@ -293,13 +327,13 @@ final class VirtualGhastTracker {
                 FsdTaskNotifier.notifyStoppedAt(server, owner, FsdTaskNotifier.notificationName(groupName), position);
                 nextMissingStationNotified = instruction.stationName();
             }
-            return new VirtualGhast(dimension, nextPos, nextYaw, previous, next, owner, groupName, nextMissingStationNotified, nextIndex, nextWait, route);
+            return new VirtualGhast(dimension, nextPos, nextYaw, previous, next, owner, groupName, nextMissingStationNotified, nextIndex, nextWait, route, false);
         }
 
         VirtualGhast follow(VirtualGhast previousGhast) {
             Vec3 forward = horizontalForward(previousGhast.yaw);
             Vec3 nextPos = previousGhast.position.subtract(forward.scale(VIRTUAL_COUPLING_SPACING));
-            return new VirtualGhast(dimension, nextPos, previousGhast.yaw, previous, next, owner, groupName, missingStationNotified, index, waitTicks, route);
+            return new VirtualGhast(dimension, nextPos, previousGhast.yaw, previous, next, owner, groupName, missingStationNotified, index, waitTicks, route, false);
         }
 
         private static Vec3 targetFor(GhastStationData.StationRef stationRef) {
