@@ -64,7 +64,9 @@ public final class GhastAutopilot {
     private static final double OBSTACLE_PROGRESS_WEIGHT = 5.0;
     private static final double OBSTACLE_ALIGNMENT_WEIGHT = 2.2;
     private static final double OBSTACLE_TURN_PENALTY = 0.75;
+    private static final int DISCOVERY_SCAN_INTERVAL_TICKS = 20;
     private static final Map<UUID, TerrainCache> TERRAIN_CACHE = new HashMap<>();
+    private static final Set<UUID> ACTIVE_GHASTS = new HashSet<>();
 
     private GhastAutopilot() {}
 
@@ -74,6 +76,7 @@ public final class GhastAutopilot {
 
     public static void initializeAttachedTask(HappyGhast ghast, int focus) {
         AutopilotState.reset(ghast, focus);
+        ACTIVE_GHASTS.add(ghast.getUUID());
         if (ghast.level() instanceof ServerLevel serverLevel) {
             VirtualGhastTracker.remove(serverLevel.getServer(), ghast.getUUID());
         }
@@ -82,16 +85,28 @@ public final class GhastAutopilot {
     public static void tickServer(MinecraftServer server) {
         VirtualGhastTracker.beginServerTick(server);
         Set<UUID> seen = VirtualGhastTracker.seenSet();
-        for (ServerLevel level : server.getAllLevels()) {
-            for (HappyGhast ghast : level.getEntities(EntityType.HAPPY_GHAST, ghast -> true)) {
-                seen.add(ghast.getUUID());
-                tickGhast(level, ghast);
+        boolean discoveryScan = server.getTickCount() % DISCOVERY_SCAN_INTERVAL_TICKS == 0;
+        if (discoveryScan) {
+            for (ServerLevel level : server.getAllLevels()) {
+                for (HappyGhast ghast : level.getEntities(EntityType.HAPPY_GHAST, ghast -> true)) {
+                    seen.add(ghast.getUUID());
+                    tickGhast(level, ghast, true);
+                }
+            }
+        } else {
+            for (UUID id : Set.copyOf(ACTIVE_GHASTS)) {
+                HappyGhast ghast = loadedGhast(server, id);
+                if (ghast == null || !(ghast.level() instanceof ServerLevel level)) {
+                    continue;
+                }
+                seen.add(id);
+                tickGhast(level, ghast, false);
             }
         }
         VirtualGhastTracker.tickUnloaded(server, seen);
     }
 
-    private static void tickGhast(ServerLevel level, HappyGhast ghast) {
+    private static void tickGhast(ServerLevel level, HappyGhast ghast, boolean allowIdleWork) {
         GhastCouplingAttachment.syncCouplingData(ghast);
         ItemStack task = ghast.getItemBySlot(EquipmentSlot.BODY);
         if (task.getItem() == GhastFsdContent.FSD_TASK && !GhastCouplingAttachment.hasChainTask(level, ghast)) {
@@ -107,6 +122,7 @@ public final class GhastAutopilot {
             FsdTaskAttachment.syncTaskFlag(ghast, false);
             syncNoAi(ghast, false);
             UUID previousId = GhastCouplingAttachment.previous(ghast).orElse(null);
+            boolean coupled = previousId != null || GhastCouplingAttachment.next(ghast).isPresent();
             Vec3 virtualPosition = previousId != null && level.getEntity(previousId) == null
                 ? VirtualGhastTracker.followVirtualCoupling(ghast.getUUID())
                 : VirtualGhastTracker.virtualPosition(ghast.getUUID());
@@ -114,14 +130,21 @@ public final class GhastAutopilot {
                 ghast.setPos(virtualPosition);
                 ghast.setDeltaMovement(Vec3.ZERO);
             }
-            if (GhastCouplingAttachment.tick(level, ghast)) {
+            if (coupled && GhastCouplingAttachment.tick(level, ghast)) {
+                ACTIVE_GHASTS.add(ghast.getUUID());
                 syncVirtualCoupled(level, ghast);
                 return;
             }
-            VirtualGhastTracker.remove(ghast.getUUID());
-            tickFsdTaskTemptation(level, ghast);
+            if (virtualPosition != null) {
+                VirtualGhastTracker.remove(ghast.getUUID());
+            }
+            ACTIVE_GHASTS.remove(ghast.getUUID());
+            if (allowIdleWork) {
+                tickFsdTaskTemptation(level, ghast);
+            }
             return;
         }
+        ACTIVE_GHASTS.add(ghast.getUUID());
         FsdTaskAttachment.syncTaskFlag(ghast, true);
         syncNoAi(ghast, true);
         List<RouteInstruction> route = RouteData.read(task);
@@ -173,6 +196,16 @@ public final class GhastAutopilot {
         }
         VirtualGhastTracker.syncLoaded(ghast.getUUID(), level.dimension(), ghast.position(), ghast.getYRot(), GhastCouplingAttachment.previous(ghast).orElse(null), GhastCouplingAttachment.next(ghast).orElse(null), FsdTaskNotifier.ownerUuid(task), FsdTaskNotifier.groupName(task), state, route);
         syncVirtualTrain(level, ghast);
+    }
+
+    private static HappyGhast loadedGhast(MinecraftServer server, UUID id) {
+        for (ServerLevel level : server.getAllLevels()) {
+            Entity entity = level.getEntity(id);
+            if (entity instanceof HappyGhast ghast && ghast.isAlive()) {
+                return ghast;
+            }
+        }
+        return null;
     }
 
     private static void syncVirtualTrain(ServerLevel level, HappyGhast head) {

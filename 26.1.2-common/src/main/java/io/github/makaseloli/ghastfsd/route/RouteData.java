@@ -12,8 +12,14 @@ import net.minecraft.world.item.component.CustomData;
 import net.minecraft.world.level.Level;
 
 public final class RouteData {
+    public static final int MAX_ROUTE_INSTRUCTIONS = 64;
     private static final String ROOT = "ghastfsd";
     private static final String COUNT = "count";
+    private static final int MAX_STATION_NAME_LENGTH = 48;
+    private static final int MIN_WAIT_SECONDS = 0;
+    private static final int MAX_WAIT_SECONDS = 3600;
+    private static final int MIN_PASSENGER_COUNT = 1;
+    private static final int MAX_PASSENGER_COUNT = 4;
 
     private RouteData() {}
 
@@ -42,7 +48,7 @@ public final class RouteData {
     }
 
     public static List<RouteInstruction> readRouteRoot(CompoundTag root) {
-        int count = Math.max(0, root.getIntOr(COUNT, 0));
+        int count = Math.min(MAX_ROUTE_INSTRUCTIONS, Math.max(0, root.getIntOr(COUNT, 0)));
         List<RouteInstruction> route = new ArrayList<>(count);
         for (int i = 0; i < count; i++) {
             CompoundTag tag = root.getCompoundOrEmpty("cmd" + i);
@@ -50,22 +56,29 @@ public final class RouteData {
             if (!"fly_to_station".equals(type)) {
                 continue;
             }
-            ResourceKey<Level> dimension = ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION, Identifier.parse(tag.getStringOr("dimension", Level.OVERWORLD.identifier().toString())));
+            ResourceKey<Level> dimension = parseDimension(tag.getStringOr("dimension", Level.OVERWORLD.identifier().toString()));
             BlockPos pos = new BlockPos(tag.getIntOr("x", 0), tag.getIntOr("y", 0), tag.getIntOr("z", 0));
-            String stationName = tag.getStringOr("station", tag.getStringOr("label", ""));
+            String stationName = sanitizeName(tag.getStringOr("station", tag.getStringOr("label", "")));
             route.add(new RouteInstruction(
                 type,
                 dimension,
                 pos,
                 stationName,
-                tag.getStringOr("condition", "wait_seconds"),
-                tag.getIntOr("wait_seconds", 5),
-                tag.getIntOr("passengers", 1),
+                sanitizeDepartureCondition(tag.getStringOr("condition", "wait_seconds")),
+                clamp(tag.getIntOr("wait_seconds", 5), MIN_WAIT_SECONDS, MAX_WAIT_SECONDS),
+                clamp(tag.getIntOr("passengers", 1), MIN_PASSENGER_COUNT, MAX_PASSENGER_COUNT),
                 tag.getDoubleOr("value", 0.35),
-                tag.getStringOr("label", stationName)
+                sanitizeName(tag.getStringOr("label", stationName))
             ));
         }
         return route;
+    }
+
+    public static CompoundTag sanitizeRouteRoot(CompoundTag root) {
+        if (root == null) {
+            return new CompoundTag();
+        }
+        return writeRoute(readRouteRoot(root), root.getBooleanOr("loop", true), Math.max(0, root.getIntOr("focus", 0)));
     }
 
     public static CompoundTag copyRouteRoot(ItemStack stack) {
@@ -76,18 +89,21 @@ public final class RouteData {
         CompoundTag root = new CompoundTag();
         int index = 0;
         for (RouteInstruction instruction : route) {
+            if (index >= MAX_ROUTE_INSTRUCTIONS) {
+                break;
+            }
             CompoundTag cmd = new CompoundTag();
             cmd.putString("type", instruction.type());
             cmd.putString("dimension", instruction.dimension().identifier().toString());
             cmd.putInt("x", 0);
             cmd.putInt("y", 0);
             cmd.putInt("z", 0);
-            cmd.putString("station", instruction.stationName());
-            cmd.putString("condition", instruction.departureCondition());
-            cmd.putInt("wait_seconds", instruction.waitSeconds());
-            cmd.putInt("passengers", instruction.passengerCount());
+            cmd.putString("station", sanitizeName(instruction.stationName()));
+            cmd.putString("condition", sanitizeDepartureCondition(instruction.departureCondition()));
+            cmd.putInt("wait_seconds", clamp(instruction.waitSeconds(), MIN_WAIT_SECONDS, MAX_WAIT_SECONDS));
+            cmd.putInt("passengers", clamp(instruction.passengerCount(), MIN_PASSENGER_COUNT, MAX_PASSENGER_COUNT));
             cmd.putDouble("value", instruction.value());
-            cmd.putString("label", instruction.label());
+            cmd.putString("label", sanitizeName(instruction.label()));
             root.put("cmd" + index, cmd);
             index++;
         }
@@ -98,11 +114,12 @@ public final class RouteData {
     }
 
     public static void replaceRouteRoot(ItemStack stack, CompoundTag root) {
+        CompoundTag sanitized = sanitizeRouteRoot(root);
         CustomData.update(DataComponents.CUSTOM_DATA, stack, tag -> {
-            if (root.getIntOr(COUNT, 0) <= 0) {
+            if (sanitized.getIntOr(COUNT, 0) <= 0) {
                 tag.remove(ROOT);
             } else {
-                tag.put(ROOT, root.copy());
+                tag.put(ROOT, sanitized);
             }
         });
     }
@@ -114,5 +131,29 @@ public final class RouteData {
     private static CompoundTag routeRoot(ItemStack stack) {
         CustomData data = stack.getOrDefault(DataComponents.CUSTOM_DATA, CustomData.EMPTY);
         return data.copyTag().getCompoundOrEmpty(ROOT);
+    }
+
+    private static ResourceKey<Level> parseDimension(String dimensionId) {
+        try {
+            return ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION, Identifier.parse(dimensionId));
+        } catch (RuntimeException exception) {
+            return Level.OVERWORLD;
+        }
+    }
+
+    private static String sanitizeName(String name) {
+        String trimmed = name == null ? "" : name.trim();
+        return trimmed.length() > MAX_STATION_NAME_LENGTH ? trimmed.substring(0, MAX_STATION_NAME_LENGTH) : trimmed;
+    }
+
+    private static String sanitizeDepartureCondition(String condition) {
+        return switch (condition) {
+            case "wait_for_passengers", "wait_for_redstone_on", "wait_for_redstone_off", "wait_seconds" -> condition;
+            default -> "wait_seconds";
+        };
+    }
+
+    private static int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
     }
 }

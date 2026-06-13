@@ -7,13 +7,18 @@ import io.github.makaseloli.ghastfsd.content.FsdTaskNotifier;
 import io.github.makaseloli.ghastfsd.content.GhastCouplingLeadItem;
 import io.github.makaseloli.ghastfsd.content.GhastCouplingAttachment;
 import io.github.makaseloli.ghastfsd.content.GhastFsdContent;
+import io.github.makaseloli.ghastfsd.content.GhastStationBlockEntity;
 import io.github.makaseloli.ghastfsd.network.GhastFsdPayloads;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Proxy;
+import java.util.Set;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.animal.happyghast.HappyGhast;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
@@ -40,6 +45,9 @@ public class ModMain {
     }
 
     private void register(RegisterEvent event) {
+        if (GhastFsdContent.GHAST_STATION_BLOCK_ENTITY == null) {
+            GhastFsdContent.setStationBlockEntityType(createStationBlockEntityType());
+        }
         event.register(Registries.BLOCK, GhastFsdContent.GHAST_STATION_ID, () -> GhastFsdContent.GHAST_STATION);
         event.register(Registries.BLOCK_ENTITY_TYPE, GhastFsdContent.GHAST_STATION_BLOCK_ENTITY_ID, () -> GhastFsdContent.GHAST_STATION_BLOCK_ENTITY);
         event.register(Registries.ITEM, GhastFsdContent.GHAST_STATION_ID, () -> GhastFsdContent.GHAST_STATION_ITEM);
@@ -109,6 +117,26 @@ public class ModMain {
             if (task.getItem() == GhastFsdContent.FSD_TASK) {
                 FsdTaskNotifier.notifyGhastKilled(level.getServer(), ghast, task);
             }
+        }
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static BlockEntityType<GhastStationBlockEntity> createStationBlockEntityType() {
+        try {
+            Class<?> supplierType = Class.forName("net.minecraft.world.level.block.entity.BlockEntityType$BlockEntitySupplier");
+            Object supplier = Proxy.newProxyInstance(
+                supplierType.getClassLoader(),
+                new Class<?>[] { supplierType },
+                (proxy, method, args) -> new GhastStationBlockEntity(
+                    (net.minecraft.core.BlockPos) args[0],
+                    (net.minecraft.world.level.block.state.BlockState) args[1]
+                )
+            );
+            Constructor<BlockEntityType> constructor = BlockEntityType.class.getDeclaredConstructor(supplierType, Set.class);
+            constructor.setAccessible(true);
+            return constructor.newInstance(supplier, Set.of(GhastFsdContent.GHAST_STATION));
+        } catch (ReflectiveOperationException exception) {
+            throw new IllegalStateException("Failed to create ghast station block entity type", exception);
         }
     }
 }

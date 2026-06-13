@@ -7,6 +7,7 @@ import io.github.makaseloli.ghastfsd.content.FsdTaskNotifier;
 import io.github.makaseloli.ghastfsd.content.GhastCouplingLeadItem;
 import io.github.makaseloli.ghastfsd.content.GhastCouplingAttachment;
 import io.github.makaseloli.ghastfsd.content.GhastFsdContent;
+import io.github.makaseloli.ghastfsd.content.GhastStationBlockEntity;
 import io.github.makaseloli.ghastfsd.network.GhastFsdPayloads;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
@@ -16,6 +17,7 @@ import net.fabricmc.fabric.api.event.player.UseEntityCallback;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import net.fabricmc.fabric.api.object.builder.v1.block.entity.FabricBlockEntityTypeBuilder;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerLevel;
@@ -27,6 +29,7 @@ public class ModMain implements ModInitializer {
     @Override
     public void onInitialize() {
         Constants.LOGGER.debug(Constants.INITIALIZING, ModUtils.id("26.1.2-fabric"));
+        GhastFsdContent.setStationBlockEntityType(FabricBlockEntityTypeBuilder.create(GhastStationBlockEntity::new, GhastFsdContent.GHAST_STATION).build());
         Registry.register(BuiltInRegistries.BLOCK, GhastFsdContent.GHAST_STATION_ID, GhastFsdContent.GHAST_STATION);
         Registry.register(BuiltInRegistries.BLOCK_ENTITY_TYPE, GhastFsdContent.GHAST_STATION_BLOCK_ENTITY_ID, GhastFsdContent.GHAST_STATION_BLOCK_ENTITY);
         Registry.register(BuiltInRegistries.ITEM, GhastFsdContent.GHAST_STATION_ID, GhastFsdContent.GHAST_STATION_ITEM);

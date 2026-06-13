@@ -16,6 +16,10 @@ public final class FsdTaskAttachment {
         if (ghast instanceof GhastFsdTaskCarrier carrier && carrier.ghastfsd$hasSyncedTask()) {
             return true;
         }
+        return hasStoredTask(ghast);
+    }
+
+    public static boolean hasStoredTask(HappyGhast ghast) {
         CustomData data = ghast.get(DataComponents.CUSTOM_DATA);
         return data != null && data.copyTag().contains(ROOT);
     }

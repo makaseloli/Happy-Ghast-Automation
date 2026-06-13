@@ -13,9 +13,6 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.SoundType;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockBehaviour;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Proxy;
-import java.util.Set;
 
 public final class GhastFsdContent {
     public static final Identifier GHAST_STATION_ID = ModUtils.id("ghast_station");
@@ -42,7 +39,7 @@ public final class GhastFsdContent {
             .useBlockDescriptionPrefix()
     );
 
-    public static final BlockEntityType<GhastStationBlockEntity> GHAST_STATION_BLOCK_ENTITY = createStationBlockEntityType();
+    public static BlockEntityType<GhastStationBlockEntity> GHAST_STATION_BLOCK_ENTITY;
 
     public static final FsdTaskItem FSD_TASK = new FsdTaskItem(
         new Item.Properties()
@@ -73,23 +70,10 @@ public final class GhastFsdContent {
         return block == GHAST_STATION;
     }
 
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    private static BlockEntityType<GhastStationBlockEntity> createStationBlockEntityType() {
-        try {
-            Class<?> supplierType = Class.forName("net.minecraft.world.level.block.entity.BlockEntityType$BlockEntitySupplier");
-            Object supplier = Proxy.newProxyInstance(
-                supplierType.getClassLoader(),
-                new Class<?>[] { supplierType },
-                (proxy, method, args) -> new GhastStationBlockEntity(
-                    (net.minecraft.core.BlockPos) args[0],
-                    (net.minecraft.world.level.block.state.BlockState) args[1]
-                )
-            );
-            Constructor<BlockEntityType> constructor = BlockEntityType.class.getDeclaredConstructor(supplierType, Set.class);
-            constructor.setAccessible(true);
-            return constructor.newInstance(supplier, Set.of(GHAST_STATION));
-        } catch (ReflectiveOperationException exception) {
-            throw new IllegalStateException("Failed to create ghast station block entity type", exception);
+    public static void setStationBlockEntityType(BlockEntityType<GhastStationBlockEntity> type) {
+        if (GHAST_STATION_BLOCK_ENTITY != null && GHAST_STATION_BLOCK_ENTITY != type) {
+            throw new IllegalStateException("Ghast station block entity type was already initialized");
         }
+        GHAST_STATION_BLOCK_ENTITY = type;
     }
 }

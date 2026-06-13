@@ -1,15 +1,15 @@
 package io.github.makaseloli.ghastfsd.mixin;
 
+import io.github.makaseloli.ghastfsd.content.FsdTaskAttachment;
+import io.github.makaseloli.ghastfsd.content.GhastCouplingAttachment;
 import io.github.makaseloli.ghastfsd.content.GhastFsdTaskCarrier;
-import net.minecraft.network.syncher.EntityDataAccessor;
-import net.minecraft.network.syncher.EntityDataSerializers;
-import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.animal.happyghast.HappyGhast;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec2;
 import net.minecraft.world.phys.Vec3;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -17,27 +17,23 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(HappyGhast.class)
 public class HappyGhastControlMixin implements GhastFsdTaskCarrier {
-    private static final EntityDataAccessor<Boolean> GHASTFSD_HAS_TASK = SynchedEntityData.defineId(HappyGhast.class, EntityDataSerializers.BOOLEAN);
-    private static final EntityDataAccessor<String> GHASTFSD_COUPLING_NEXT = SynchedEntityData.defineId(HappyGhast.class, EntityDataSerializers.STRING);
-    private static final EntityDataAccessor<String> GHASTFSD_COUPLING_PREVIOUS = SynchedEntityData.defineId(HappyGhast.class, EntityDataSerializers.STRING);
-
-    @Inject(method = "defineSynchedData", at = @At("TAIL"))
-    private void ghastfsd$defineSynchedData(SynchedEntityData.Builder builder, org.spongepowered.asm.mixin.injection.callback.CallbackInfo callback) {
-        builder.define(GHASTFSD_HAS_TASK, false);
-        builder.define(GHASTFSD_COUPLING_NEXT, "");
-        builder.define(GHASTFSD_COUPLING_PREVIOUS, "");
-    }
+    @Unique
+    private boolean ghastfsd$hasTask;
+    @Unique
+    private String ghastfsd$couplingNext = "";
+    @Unique
+    private String ghastfsd$couplingPrevious = "";
 
     @Inject(method = "getControllingPassenger", at = @At("HEAD"), cancellable = true)
     private void ghastfsd$getControllingPassenger(CallbackInfoReturnable<LivingEntity> callback) {
-        if (ghastfsd$hasSyncedTask() || ghastfsd$isCoupledFollower()) {
+        if (ghastfsd$hasTaskForControl() || ghastfsd$isCoupledFollower()) {
             callback.setReturnValue(null);
         }
     }
 
     @Inject(method = "getRiddenInput", at = @At("HEAD"), cancellable = true)
     private void ghastfsd$getRiddenInput(Player player, Vec3 input, CallbackInfoReturnable<Vec3> callback) {
-        if (ghastfsd$hasSyncedTask() || ghastfsd$isCoupledFollower()) {
+        if (ghastfsd$hasTaskForControl() || ghastfsd$isCoupledFollower()) {
             callback.setReturnValue(Vec3.ZERO);
         }
     }
@@ -45,50 +41,57 @@ public class HappyGhastControlMixin implements GhastFsdTaskCarrier {
     @Inject(method = "getRiddenRotation", at = @At("HEAD"), cancellable = true)
     private void ghastfsd$getRiddenRotation(LivingEntity passenger, CallbackInfoReturnable<Vec2> callback) {
         HappyGhast ghast = (HappyGhast) (Object) this;
-        if (ghastfsd$hasSyncedTask() || ghastfsd$isCoupledFollower()) {
+        if (ghastfsd$hasTaskForControl() || ghastfsd$isCoupledFollower()) {
             callback.setReturnValue(new Vec2(ghast.getXRot(), ghast.getYRot()));
         }
     }
 
     @Inject(method = "tickRidden", at = @At("HEAD"), cancellable = true)
     private void ghastfsd$tickRidden(Player player, Vec3 input, CallbackInfo callback) {
-        if (ghastfsd$hasSyncedTask() || ghastfsd$isCoupledFollower()) {
+        if (ghastfsd$hasTaskForControl() || ghastfsd$isCoupledFollower()) {
             callback.cancel();
         }
     }
 
     @Override
     public boolean ghastfsd$hasSyncedTask() {
-        return ((HappyGhast) (Object) this).getEntityData().get(GHASTFSD_HAS_TASK);
+        return ghastfsd$hasTask;
     }
 
     @Override
     public void ghastfsd$setSyncedTask(boolean hasTask) {
-        ((HappyGhast) (Object) this).getEntityData().set(GHASTFSD_HAS_TASK, hasTask);
+        ghastfsd$hasTask = hasTask;
     }
 
     @Override
     public String ghastfsd$syncedCouplingNext() {
-        return ((HappyGhast) (Object) this).getEntityData().get(GHASTFSD_COUPLING_NEXT);
+        return ghastfsd$couplingNext;
     }
 
     @Override
     public void ghastfsd$setSyncedCouplingNext(String nextUuid) {
-        ((HappyGhast) (Object) this).getEntityData().set(GHASTFSD_COUPLING_NEXT, nextUuid == null ? "" : nextUuid);
+        ghastfsd$couplingNext = nextUuid == null ? "" : nextUuid;
     }
 
     @Override
     public String ghastfsd$syncedCouplingPrevious() {
-        return ((HappyGhast) (Object) this).getEntityData().get(GHASTFSD_COUPLING_PREVIOUS);
+        return ghastfsd$couplingPrevious;
     }
 
     @Override
     public void ghastfsd$setSyncedCouplingPrevious(String previousUuid) {
-        ((HappyGhast) (Object) this).getEntityData().set(GHASTFSD_COUPLING_PREVIOUS, previousUuid == null ? "" : previousUuid);
+        ghastfsd$couplingPrevious = previousUuid == null ? "" : previousUuid;
     }
 
+    @Unique
+    private boolean ghastfsd$hasTaskForControl() {
+        HappyGhast ghast = (HappyGhast) (Object) this;
+        return ghastfsd$hasTask || FsdTaskAttachment.hasStoredTask(ghast);
+    }
+
+    @Unique
     private boolean ghastfsd$isCoupledFollower() {
-        String previous = ghastfsd$syncedCouplingPrevious();
-        return previous != null && !previous.isBlank();
+        HappyGhast ghast = (HappyGhast) (Object) this;
+        return (ghastfsd$couplingPrevious != null && !ghastfsd$couplingPrevious.isBlank()) || GhastCouplingAttachment.previous(ghast).isPresent();
     }
 }
