@@ -1,17 +1,32 @@
 {
   "variants": {
-    "facing=north": {
+    "facing=north,waterlogged=false": {
       "model": "ghastfsd:block/ghast_station"
     },
-    "facing=east": {
+    "facing=north,waterlogged=true": {
+      "model": "ghastfsd:block/ghast_station"
+    },
+    "facing=east,waterlogged=false": {
       "model": "ghastfsd:block/ghast_station",
       "y": 90
     },
-    "facing=south": {
+    "facing=east,waterlogged=true": {
+      "model": "ghastfsd:block/ghast_station",
+      "y": 90
+    },
+    "facing=south,waterlogged=false": {
       "model": "ghastfsd:block/ghast_station",
       "y": 180
     },
-    "facing=west": {
+    "facing=south,waterlogged=true": {
+      "model": "ghastfsd:block/ghast_station",
+      "y": 180
+    },
+    "facing=west,waterlogged=false": {
+      "model": "ghastfsd:block/ghast_station",
+      "y": 270
+    },
+    "facing=west,waterlogged=true": {
       "model": "ghastfsd:block/ghast_station",
       "y": 270
     }

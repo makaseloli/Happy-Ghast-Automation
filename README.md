@@ -22,14 +22,18 @@ Recipes are available in JEI.
 The main things to look up are:
 
 - **Ghast Station**: a named stop for FSD routes.
+![Ghast Station Item](./screenshots/items/ghaststation.webp)
 - **FSD Task**: stores a route.
+![FSD Task Item](./screenshots/items/fsdtask.webp)
 - **FSD Task Remover**: removes an installed task from a Happy Ghast or train.
+![FSD Task Remover Item](./screenshots/items/fsdtaskremover.webp)
 - **Ghast Coupling Lead**: connects Happy Ghasts together.
+![Ghast Coupling Lead Item](./screenshots/items/couplinglead.webp)
 
 ## Ghast Stations
 
 Right-click a Ghast Station to open its settings.
-
+![Ghast Station GUI](./screenshots/gui/ghaststation.webp)
 You can set:
 
 - **Station name**: the name used by FSD routes.
@@ -44,7 +48,7 @@ When you place a Ghast Station, its default line direction is the direction you 
 For coupled trains, the first Happy Ghast faces the station's line direction and the rest of the train lines up behind it.
 
 ## FSD Tasks
-
+![FSD Task GUI](./screenshots/gui/fsdtask.webp)
 Hold an FSD Task and left-click to open the route editor.
 
 In the editor you can:

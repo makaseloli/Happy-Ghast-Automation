@@ -63,7 +63,7 @@ public final class FsdTaskAttachment {
     }
 
     public static void syncTaskFlag(HappyGhast ghast, boolean hasTask) {
-        if (ghast instanceof GhastFsdTaskCarrier carrier) {
+        if (ghast instanceof GhastFsdTaskCarrier carrier && carrier.ghastfsd$hasSyncedTask() != hasTask) {
             carrier.ghastfsd$setSyncedTask(hasTask);
         }
     }

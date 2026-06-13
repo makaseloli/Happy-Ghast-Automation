@@ -4,39 +4,55 @@ import com.mojang.serialization.MapCodec;
 import io.github.makaseloli.ghastfsd.network.GhastFsdPayloads;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.RandomSource;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.animal.happyghast.HappyGhast;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.context.BlockPlaceContext;
+import net.minecraft.world.level.LevelAccessor;
+import net.minecraft.world.level.LevelReader;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.ScheduledTickAccess;
 import net.minecraft.world.level.block.BaseEntityBlock;
 import net.minecraft.world.level.block.EntityBlock;
 import net.minecraft.world.level.block.HorizontalDirectionalBlock;
 import net.minecraft.world.level.block.Mirror;
 import net.minecraft.world.level.block.RenderShape;
 import net.minecraft.world.level.block.Rotation;
+import net.minecraft.world.level.block.SimpleWaterloggedBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityTicker;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.block.state.properties.BooleanProperty;
+import net.minecraft.world.level.material.FluidState;
+import net.minecraft.world.level.material.Fluids;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.AABB;
 
-public class GhastStationBlock extends BaseEntityBlock implements EntityBlock {
+public class GhastStationBlock extends BaseEntityBlock implements EntityBlock, SimpleWaterloggedBlock {
     public static final MapCodec<GhastStationBlock> CODEC = simpleCodec(GhastStationBlock::new);
+    public static final BooleanProperty WATERLOGGED = BlockStateProperties.WATERLOGGED;
     public static final double ARRIVAL_RADIUS = 8.0;
     public static final double ARRIVAL_HEIGHT = 8.0;
+    private static final int STATION_CHECK_INTERVAL_TICKS = 10;
 
     public GhastStationBlock(BlockBehaviour.Properties properties) {
         super(properties);
-        registerDefaultState(stateDefinition.any().setValue(HorizontalDirectionalBlock.FACING, Direction.NORTH));
+        registerDefaultState(stateDefinition.any()
+            .setValue(HorizontalDirectionalBlock.FACING, Direction.NORTH)
+            .setValue(WATERLOGGED, false));
     }
 
     @Override
@@ -52,12 +68,15 @@ public class GhastStationBlock extends BaseEntityBlock implements EntityBlock {
     @Override
     public BlockState getStateForPlacement(BlockPlaceContext context) {
         Direction direction = context.getPlayer() == null ? Direction.NORTH : context.getPlayer().getDirection();
-        return defaultBlockState().setValue(HorizontalDirectionalBlock.FACING, direction);
+        FluidState fluidState = context.getLevel().getFluidState(context.getClickedPos());
+        return defaultBlockState()
+            .setValue(HorizontalDirectionalBlock.FACING, direction)
+            .setValue(WATERLOGGED, fluidState.is(Fluids.WATER));
     }
 
     @Override
     protected void createBlockStateDefinition(StateDefinition.Builder<net.minecraft.world.level.block.Block, BlockState> builder) {
-        builder.add(HorizontalDirectionalBlock.FACING);
+        builder.add(HorizontalDirectionalBlock.FACING, WATERLOGGED);
     }
 
     @Override
@@ -68,6 +87,43 @@ public class GhastStationBlock extends BaseEntityBlock implements EntityBlock {
     @Override
     protected BlockState mirror(BlockState state, Mirror mirror) {
         return state.rotate(mirror.getRotation(state.getValue(HorizontalDirectionalBlock.FACING)));
+    }
+
+    @Override
+    protected BlockState updateShape(BlockState state, LevelReader level, ScheduledTickAccess scheduledTickAccess, BlockPos pos, Direction direction, BlockPos neighborPos, BlockState neighborState, RandomSource random) {
+        if (state.getValue(WATERLOGGED)) {
+            scheduledTickAccess.scheduleTick(pos, Fluids.WATER, Fluids.WATER.getTickDelay(level));
+        }
+        return super.updateShape(state, level, scheduledTickAccess, pos, direction, neighborPos, neighborState, random);
+    }
+
+    @Override
+    protected FluidState getFluidState(BlockState state) {
+        return state.getValue(WATERLOGGED) ? Fluids.WATER.getSource(false) : super.getFluidState(state);
+    }
+
+    @Override
+    public boolean placeLiquid(LevelAccessor level, BlockPos pos, BlockState state, FluidState fluidState) {
+        if (!SimpleWaterloggedBlock.super.placeLiquid(level, pos, state, fluidState)) {
+            return false;
+        }
+        if (!level.isClientSide() && fluidState.is(Fluids.WATER)) {
+            level.playSound(null, pos, SoundEvents.DRIED_GHAST_PLACE_IN_WATER, SoundSource.BLOCKS, 1.0F, 1.0F);
+        }
+        return true;
+    }
+
+    @Override
+    public void setPlacedBy(Level level, BlockPos pos, BlockState state, LivingEntity placer, ItemStack stack) {
+        super.setPlacedBy(level, pos, state, placer, stack);
+        level.playSound(
+            null,
+            pos,
+            state.getValue(WATERLOGGED) ? SoundEvents.DRIED_GHAST_PLACE_IN_WATER : SoundEvents.DRIED_GHAST_PLACE,
+            SoundSource.BLOCKS,
+            1.0F,
+            1.0F
+        );
     }
 
     @Override
@@ -88,6 +144,9 @@ public class GhastStationBlock extends BaseEntityBlock implements EntityBlock {
             return null;
         }
         return (tickLevel, tickPos, tickState, blockEntity) -> {
+            if ((tickLevel.getGameTime() + Math.floorMod(tickPos.asLong(), STATION_CHECK_INTERVAL_TICKS)) % STATION_CHECK_INTERVAL_TICKS != 0) {
+                return;
+            }
             if (blockEntity instanceof GhastStationBlockEntity station) {
                 syncStationIndex(tickLevel, tickPos, station);
                 if (station.updateComparatorOccupied(hasHappyGhast(tickLevel, tickPos))) {

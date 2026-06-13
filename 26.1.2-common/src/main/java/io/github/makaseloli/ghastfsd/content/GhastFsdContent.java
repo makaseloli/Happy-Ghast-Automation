@@ -10,6 +10,7 @@ import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.SoundType;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import java.lang.reflect.Constructor;
@@ -28,9 +29,10 @@ public final class GhastFsdContent {
     public static final GhastStationBlock GHAST_STATION = new GhastStationBlock(
         BlockBehaviour.Properties.of()
             .setId(ResourceKey.create(Registries.BLOCK, GHAST_STATION_ID))
-            .strength(2.5F, 6.0F)
+            .forceSolidOn()
+            .instabreak()
+            .sound(SoundType.DRIED_GHAST)
             .noOcclusion()
-            .requiresCorrectToolForDrops()
     );
 
     public static final BlockItem GHAST_STATION_ITEM = new BlockItem(

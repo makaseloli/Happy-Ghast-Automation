@@ -65,8 +65,14 @@ public final class GhastCouplingAttachment {
 
     public static void syncCouplingData(HappyGhast ghast) {
         if (ghast instanceof GhastFsdTaskCarrier carrier) {
-            carrier.ghastfsd$setSyncedCouplingNext(next(ghast).map(UUID::toString).orElse(""));
-            carrier.ghastfsd$setSyncedCouplingPrevious(previous(ghast).map(UUID::toString).orElse(""));
+            String next = next(ghast).map(UUID::toString).orElse("");
+            String previous = previous(ghast).map(UUID::toString).orElse("");
+            if (!next.equals(carrier.ghastfsd$syncedCouplingNext())) {
+                carrier.ghastfsd$setSyncedCouplingNext(next);
+            }
+            if (!previous.equals(carrier.ghastfsd$syncedCouplingPrevious())) {
+                carrier.ghastfsd$setSyncedCouplingPrevious(previous);
+            }
         }
     }
 
@@ -338,6 +344,9 @@ public final class GhastCouplingAttachment {
                 ghast.setNoAi(true);
             }
             CompoundTag tag = ghast.getOrDefault(DataComponents.CUSTOM_DATA, CustomData.EMPTY).copyTag();
+            if (tag.getBooleanOr(AI_DISABLED_BY_COUPLING, false)) {
+                return;
+            }
             tag.putBoolean(AI_DISABLED_BY_COUPLING, true);
             ghast.setComponent(DataComponents.CUSTOM_DATA, CustomData.of(tag));
             return;
