@@ -108,7 +108,11 @@ final class GhastStationNavigator {
             && cached.dockingTarget.distanceToSqr(dockingTarget) <= 0.25) {
             return cached.flightTarget;
         }
-        Vec3 flightTarget = computeStationFlightTarget(level, ghast, station, dockingHeight, stationDirection, dockingTarget);
+        Vec3 flightTarget = GhastFlightController.terrainAwareTarget(
+            level,
+            ghast,
+            computeStationFlightTarget(level, ghast, station, dockingHeight, stationDirection, dockingTarget)
+        );
         STATION_PLAN_CACHE.put(ghast.getUUID(), new StationPlan(ghast.tickCount, station, dockingHeight, stationDirection, dockingTarget, flightTarget));
         return flightTarget;
     }
