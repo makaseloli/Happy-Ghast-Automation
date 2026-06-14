@@ -20,13 +20,23 @@ import net.minecraft.world.level.block.state.properties.NoteBlockInstrument;
 import net.minecraft.world.phys.Vec3;
 
 final class GhastStationNavigator {
-    private static final double DOCKING_SPEED_MULTIPLIER = 0.45;
-    private static final double STATION_EXIT_MARGIN = 3.0;
-    private static final double ABOVE_STATION_MARGIN = 3.0;
+    private static final double DOCKING_SPEED_MULTIPLIER = 0.38;
+    private static final double APPROACH_HEIGHT_MARGIN = 4.0;
+    private static final double APPROACH_HORIZONTAL_TOLERANCE = 2.25;
+    private static final double DESCEND_RESET_RADIUS = 7.0;
+    private static final double SNAP_HORIZONTAL_RADIUS = 2.75;
+    private static final double SNAP_VERTICAL_RADIUS = 2.5;
+    private static final double FORCE_DOCK_HORIZONTAL_RADIUS = 1.2;
+    private static final double FORCE_DOCK_VERTICAL_RADIUS = 1.25;
+    private static final int PHASE_TIMEOUT_TICKS = 20 * 20;
     private static final int STATION_PLAN_TICKS = 10;
     private static final Map<UUID, StationPlan> STATION_PLAN_CACHE = new HashMap<>();
 
     private GhastStationNavigator() {}
+
+    static void clear(HappyGhast ghast) {
+        STATION_PLAN_CACHE.remove(ghast.getUUID());
+    }
 
     static boolean tick(ServerLevel level, HappyGhast ghast, ItemStack task, AutopilotState state, RouteInstruction instruction, int routeSize, boolean loop) {
         BlockPos station = resolveStation(level, instruction);
@@ -40,20 +50,80 @@ final class GhastStationNavigator {
         int dockingHeight = dockingHeight(level, station, instruction);
         Direction stationDirection = stationDirection(level, station, instruction);
         Vec3 target = GhastStationGeometry.dockingTarget(ghast, station, dockingHeight);
-        if (!GhastStationGeometry.isDockedAt(ghast, station, target, dockingHeight)) {
-            state.docked = false;
-            Vec3 flightTarget = stationFlightTarget(level, ghast, station, dockingHeight, stationDirection, target);
-            double horizontalDistance = GhastStationGeometry.horizontalDistance(ghast.position(), target);
-            double verticalDistance = Math.abs(ghast.getBoundingBox().minY - (station.getY() + dockingHeight));
-            double cruiseSpeed = GhastFlightController.speed(ghast);
-            boolean finalDockLeg = flightTarget.distanceToSqr(target) <= 0.25;
-            boolean closeToDock = finalDockLeg && horizontalDistance <= GhastStationGeometry.APPROACH_RADIUS && verticalDistance <= GhastStationGeometry.APPROACH_RADIUS;
-            double speed = closeToDock ? cruiseSpeed * DOCKING_SPEED_MULTIPLIER : cruiseSpeed;
-            GhastFlightController.moveToward(level, ghast, flightTarget, speed);
+        int targetBottomY = station.getY() + dockingHeight;
+        state.phaseTicks++;
+
+        DockResult dockResult = tryCompleteDock(level, ghast, station, target, targetBottomY, dockingHeight, stationDirection, state);
+        if (dockResult != DockResult.NOT_DOCKED) {
+            handleDocked(level, ghast, station, stationDirection, instruction, state, routeSize, loop);
             return taskChanged;
         }
 
+        state.docked = false;
+        switch (state.phase) {
+            case DOCKED, ALIGN -> tickAlign(level, ghast, target, targetBottomY, stationDirection, state);
+            case DESCEND -> tickDescend(level, ghast, target, targetBottomY, stationDirection, state);
+            case APPROACH -> tickApproach(level, ghast, station, dockingHeight, stationDirection, target, state);
+            case CRUISE -> tickCruise(level, ghast, station, dockingHeight, stationDirection, target, state);
+        }
+        return taskChanged;
+    }
+
+    private static void tickCruise(ServerLevel level, HappyGhast ghast, BlockPos station, int dockingHeight, Direction stationDirection, Vec3 dockingTarget, AutopilotState state) {
+        Vec3 approachTarget = approachTarget(ghast, station, dockingHeight, dockingTarget);
+        if (GhastStationGeometry.horizontalDistance(ghast.position(), dockingTarget) <= GhastStationGeometry.APPROACH_RADIUS * 1.5
+            && ghast.getBoundingBox().minY >= station.getY() + dockingHeight - GhastStationGeometry.DOCKING_VERTICAL_TOLERANCE) {
+            state.transitionTo(AutopilotPhase.APPROACH);
+        }
+        Vec3 flightTarget = stationFlightTarget(level, ghast, station, dockingHeight, stationDirection, approachTarget);
+        GhastFlightController.moveToward(level, ghast, flightTarget, GhastFlightController.speed(ghast));
+    }
+
+    private static void tickApproach(ServerLevel level, HappyGhast ghast, BlockPos station, int dockingHeight, Direction stationDirection, Vec3 dockingTarget, AutopilotState state) {
+        Vec3 approachTarget = approachTarget(ghast, station, dockingHeight, dockingTarget);
+        double horizontalDistance = GhastStationGeometry.horizontalDistance(ghast.position(), dockingTarget);
+        double verticalDistance = Math.abs(ghast.position().y - approachTarget.y);
+        if ((horizontalDistance <= APPROACH_HORIZONTAL_TOLERANCE && verticalDistance <= APPROACH_HEIGHT_MARGIN)
+            || state.phaseTicks >= PHASE_TIMEOUT_TICKS) {
+            state.transitionTo(AutopilotPhase.DESCEND);
+            tickDescend(level, ghast, dockingTarget, station.getY() + dockingHeight, stationDirection, state);
+            return;
+        }
+        Vec3 flightTarget = stationFlightTarget(level, ghast, station, dockingHeight, stationDirection, approachTarget);
+        GhastFlightController.moveToward(level, ghast, flightTarget, GhastFlightController.speed(ghast));
+    }
+
+    private static void tickDescend(ServerLevel level, HappyGhast ghast, Vec3 dockingTarget, int targetBottomY, Direction stationDirection, AutopilotState state) {
+        double horizontalDistance = GhastStationGeometry.horizontalDistance(ghast.position(), dockingTarget);
+        if (horizontalDistance > DESCEND_RESET_RADIUS && state.phaseTicks > 20) {
+            state.transitionTo(AutopilotPhase.APPROACH);
+            return;
+        }
+        if (trySnapDock(level, ghast, dockingTarget, targetBottomY, stationDirection, state.phaseTicks, true)) {
+            state.transitionTo(AutopilotPhase.ALIGN);
+            return;
+        }
+        if (isInsideFinalDockWindow(ghast, dockingTarget, targetBottomY)) {
+            forceFinalDock(ghast, dockingTarget, stationDirection);
+            state.transitionTo(AutopilotPhase.ALIGN);
+            return;
+        }
+        double speed = GhastFlightController.speed(ghast) * DOCKING_SPEED_MULTIPLIER;
+        GhastFlightController.moveToward(level, ghast, dockingTarget, speed);
+    }
+
+    private static void tickAlign(ServerLevel level, HappyGhast ghast, Vec3 dockingTarget, int targetBottomY, Direction stationDirection, AutopilotState state) {
+        if (!trySnapDock(level, ghast, dockingTarget, targetBottomY, stationDirection, state.phaseTicks, true)) {
+            state.transitionTo(AutopilotPhase.DESCEND);
+            tickDescend(level, ghast, dockingTarget, targetBottomY, stationDirection, state);
+            return;
+        }
+        GhastFlightController.alignToDirection(ghast, stationDirection);
+    }
+
+    private static void handleDocked(ServerLevel level, HappyGhast ghast, BlockPos station, Direction stationDirection, RouteInstruction instruction, AutopilotState state, int routeSize, boolean loop) {
         boolean wasDocked = state.docked;
+        state.transitionTo(AutopilotPhase.DOCKED);
         state.docked = true;
         STATION_PLAN_CACHE.remove(ghast.getUUID());
         ghast.setDeltaMovement(Vec3.ZERO);
@@ -65,10 +135,12 @@ final class GhastStationNavigator {
         if (departureSatisfied(level, ghast, station, instruction, state)) {
             AutopilotRouteProgress.advance(state, routeSize, loop);
         }
-        return taskChanged;
     }
 
     private static BlockPos resolveStation(ServerLevel level, RouteInstruction instruction) {
+        if (!instruction.matchesDimension(level.dimension())) {
+            return null;
+        }
         GhastStationData.StationRef stationRef = GhastStationData.get(level).findIn(level, instruction.stationName()).orElse(null);
         if (stationRef != null) {
             return stationRef.pos();
@@ -98,60 +170,86 @@ final class GhastStationNavigator {
         return Direction.NORTH;
     }
 
-    private static Vec3 stationFlightTarget(ServerLevel level, HappyGhast ghast, BlockPos station, int dockingHeight, Direction stationDirection, Vec3 dockingTarget) {
+    private static Vec3 stationFlightTarget(ServerLevel level, HappyGhast ghast, BlockPos station, int dockingHeight, Direction stationDirection, Vec3 target) {
         StationPlan cached = STATION_PLAN_CACHE.get(ghast.getUUID());
         if (cached != null
             && cached.tick + STATION_PLAN_TICKS > ghast.tickCount
             && cached.station.equals(station)
             && cached.dockingHeight == dockingHeight
             && cached.stationDirection == stationDirection
-            && cached.dockingTarget.distanceToSqr(dockingTarget) <= 0.25) {
+            && cached.dockingTarget.distanceToSqr(target) <= 0.25) {
             return cached.flightTarget;
         }
         Vec3 flightTarget = GhastFlightController.terrainAwareTarget(
             level,
             ghast,
-            computeStationFlightTarget(level, ghast, station, dockingHeight, stationDirection, dockingTarget)
+            target
         );
-        STATION_PLAN_CACHE.put(ghast.getUUID(), new StationPlan(ghast.tickCount, station, dockingHeight, stationDirection, dockingTarget, flightTarget));
+        STATION_PLAN_CACHE.put(ghast.getUUID(), new StationPlan(ghast.tickCount, station, dockingHeight, stationDirection, target, flightTarget));
         return flightTarget;
     }
 
-    private static Vec3 computeStationFlightTarget(ServerLevel level, HappyGhast ghast, BlockPos station, int dockingHeight, Direction stationDirection, Vec3 dockingTarget) {
-        Vec3 stationCenter = Vec3.atCenterOf(station);
-        double horizontalDistance = GhastStationGeometry.horizontalDistance(ghast.position(), dockingTarget);
+    private static Vec3 approachTarget(HappyGhast ghast, BlockPos station, int dockingHeight, Vec3 dockingTarget) {
         double targetBottomY = station.getY() + dockingHeight;
-        double verticalDistance = Math.abs(ghast.getBoundingBox().minY - targetBottomY);
-
-        double stationColumnRadius = ghast.getBbWidth() * 0.5 + GhastStationGeometry.ARRIVAL_HORIZONTAL_RADIUS + STATION_EXIT_MARGIN;
-        double aboveStationY = dockingTarget.y + ABOVE_STATION_MARGIN;
-        boolean belowApproachHeight = ghast.getY() < aboveStationY - GhastStationGeometry.DOCKING_VERTICAL_TOLERANCE;
-        if (belowApproachHeight) {
-            Vec3 away = horizontalAwayFromStation(ghast, stationCenter, stationDirection);
-            return new Vec3(
-                stationCenter.x + away.x * stationColumnRadius,
-                aboveStationY,
-                stationCenter.z + away.z * stationColumnRadius
-            );
-        }
-        if (horizontalDistance > GhastStationGeometry.DOCKING_HORIZONTAL_TOLERANCE) {
-            return new Vec3(dockingTarget.x, aboveStationY, dockingTarget.z);
-        }
-        if (verticalDistance > GhastStationGeometry.DOCKING_VERTICAL_TOLERANCE) {
-            return dockingTarget;
-        }
-        return GhastFlightController.terrainAwareTarget(level, ghast, dockingTarget);
+        double bottomOffset = ghast.getY() - ghast.getBoundingBox().minY;
+        return new Vec3(dockingTarget.x, targetBottomY + bottomOffset + APPROACH_HEIGHT_MARGIN, dockingTarget.z);
     }
 
-    private static Vec3 horizontalAwayFromStation(HappyGhast ghast, Vec3 stationCenter, Direction stationDirection) {
-        Vec3 away = new Vec3(ghast.getX() - stationCenter.x, 0.0, ghast.getZ() - stationCenter.z);
-        if (away.lengthSqr() > 1.0E-6) {
-            return away.normalize();
+    private static boolean trySnapDock(ServerLevel level, HappyGhast ghast, Vec3 dockingTarget, int targetBottomY, Direction stationDirection, int phaseTicks, boolean allowForcedFinal) {
+        double horizontalDistance = GhastStationGeometry.horizontalDistance(ghast.position(), dockingTarget);
+        double bottomError = Math.abs(ghast.getBoundingBox().minY - targetBottomY);
+        if (horizontalDistance > SNAP_HORIZONTAL_RADIUS || bottomError > SNAP_VERTICAL_RADIUS) {
+            return false;
         }
-        return new Vec3(stationDirection.getStepX(), 0.0, stationDirection.getStepZ()).normalize();
+        if (phaseTicks < 20 && horizontalDistance > GhastStationGeometry.DOCKING_HORIZONTAL_TOLERANCE) {
+            return false;
+        }
+        if (!level.noCollision(ghast, ghast.getBoundingBox().move(dockingTarget.subtract(ghast.position())))
+            && !(allowForcedFinal && isInsideFinalDockWindow(ghast, dockingTarget, targetBottomY))) {
+            return false;
+        }
+        forceFinalDock(ghast, dockingTarget, stationDirection);
+        return true;
+    }
+
+    private static DockResult tryCompleteDock(ServerLevel level, HappyGhast ghast, BlockPos station, Vec3 dockingTarget, int targetBottomY, int dockingHeight, Direction stationDirection, AutopilotState state) {
+        if (GhastStationGeometry.isDockedAt(ghast, station, dockingTarget, dockingHeight)) {
+            forceFinalDock(ghast, dockingTarget, stationDirection);
+            return DockResult.DOCKED;
+        }
+        if (trySnapDock(level, ghast, dockingTarget, targetBottomY, stationDirection, state.phaseTicks, false)) {
+            return DockResult.DOCKED;
+        }
+        if (state.phase == AutopilotPhase.DESCEND || state.phase == AutopilotPhase.ALIGN || state.phase == AutopilotPhase.DOCKED) {
+            double horizontalDistance = GhastStationGeometry.horizontalDistance(ghast.position(), dockingTarget);
+            double bottomError = Math.abs(ghast.getBoundingBox().minY - targetBottomY);
+            if (horizontalDistance <= SNAP_HORIZONTAL_RADIUS && bottomError <= SNAP_VERTICAL_RADIUS) {
+                forceFinalDock(ghast, dockingTarget, stationDirection);
+                return DockResult.DOCKED;
+            }
+        }
+        return DockResult.NOT_DOCKED;
+    }
+
+    private static boolean isInsideFinalDockWindow(HappyGhast ghast, Vec3 dockingTarget, int targetBottomY) {
+        double horizontalDistance = GhastStationGeometry.horizontalDistance(ghast.position(), dockingTarget);
+        double bottomError = Math.abs(ghast.getBoundingBox().minY - targetBottomY);
+        return horizontalDistance <= FORCE_DOCK_HORIZONTAL_RADIUS && bottomError <= FORCE_DOCK_VERTICAL_RADIUS;
+    }
+
+    private static void forceFinalDock(HappyGhast ghast, Vec3 dockingTarget, Direction stationDirection) {
+        ghast.setPos(dockingTarget);
+        ghast.setDeltaMovement(Vec3.ZERO);
+        GhastFlightController.alignToDirection(ghast, stationDirection);
+        ghast.hurtMarked = true;
     }
 
     private record StationPlan(int tick, BlockPos station, int dockingHeight, Direction stationDirection, Vec3 dockingTarget, Vec3 flightTarget) {}
+
+    private enum DockResult {
+        DOCKED,
+        NOT_DOCKED
+    }
 
     private static void playArrivalSound(ServerLevel level, BlockPos station) {
         NoteBlockInstrument instrument = NoteBlockInstrument.HARP;

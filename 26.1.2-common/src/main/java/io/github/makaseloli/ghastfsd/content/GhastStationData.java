@@ -119,7 +119,7 @@ public final class GhastStationData extends SavedData {
                 String dimensionId = entry.getStringOr("dimension", Level.OVERWORLD.identifier().toString());
                 BlockPos pos = new BlockPos(entry.getIntOr("x", 0), entry.getIntOr("y", 0), entry.getIntOr("z", 0));
                 if (!name.isBlank()) {
-                    ResourceKey<Level> dimension = ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION, Identifier.parse(dimensionId));
+                    ResourceKey<Level> dimension = parseDimension(dimensionId);
                     int dockingHeight = GhastStationBlockEntity.clamp(
                         entry.getIntOr("docking_height", GhastStationBlockEntity.DEFAULT_DOCKING_HEIGHT),
                         GhastStationBlockEntity.MIN_DOCKING_HEIGHT,
@@ -154,6 +154,14 @@ public final class GhastStationData extends SavedData {
 
     private static String key(ResourceKey<Level> dimension, BlockPos pos) {
         return dimension.identifier() + "@" + pos.getX() + "," + pos.getY() + "," + pos.getZ();
+    }
+
+    private static ResourceKey<Level> parseDimension(String dimensionId) {
+        try {
+            return ResourceKey.create(net.minecraft.core.registries.Registries.DIMENSION, Identifier.parse(dimensionId));
+        } catch (RuntimeException exception) {
+            return Level.OVERWORLD;
+        }
     }
 
     public record StationRef(String name, ResourceKey<Level> dimension, BlockPos pos, int dockingHeight, Direction direction) {

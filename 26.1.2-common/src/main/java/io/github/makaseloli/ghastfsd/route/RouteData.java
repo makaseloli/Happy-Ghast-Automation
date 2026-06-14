@@ -24,7 +24,7 @@ public final class RouteData {
     private RouteData() {}
 
     public static int count(ItemStack stack) {
-        return routeRoot(stack).getIntOr(COUNT, 0);
+        return read(stack).size();
     }
 
     public static int focus(ItemStack stack) {
@@ -59,6 +59,9 @@ public final class RouteData {
             ResourceKey<Level> dimension = parseDimension(tag.getStringOr("dimension", Level.OVERWORLD.identifier().toString()));
             BlockPos pos = new BlockPos(tag.getIntOr("x", 0), tag.getIntOr("y", 0), tag.getIntOr("z", 0));
             String stationName = sanitizeName(tag.getStringOr("station", tag.getStringOr("label", "")));
+            if (stationName.isBlank()) {
+                continue;
+            }
             route.add(new RouteInstruction(
                 type,
                 dimension,

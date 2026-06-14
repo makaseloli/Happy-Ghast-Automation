@@ -12,6 +12,6 @@ final class AutopilotRouteProgress {
             state.index++;
         }
         state.waitTicks = 0;
-        state.docked = false;
+        state.resetNavigation();
     }
 }

@@ -63,6 +63,7 @@ public class FsdTaskItem extends Item {
             HappyGhast carrier = target.level() instanceof ServerLevel level ? GhastCouplingAttachment.chainHead(level, ghast) : ghast;
             ItemStack installed = itemStack.copy();
             installed.setCount(1);
+            RouteData.replaceRouteRoot(installed, RouteData.copyRouteRoot(installed));
             FsdTaskNotifier.rememberInstaller(installed, player);
             FsdTaskAttachment.setTask(carrier, installed);
             if (target.level() instanceof ServerLevel level) {

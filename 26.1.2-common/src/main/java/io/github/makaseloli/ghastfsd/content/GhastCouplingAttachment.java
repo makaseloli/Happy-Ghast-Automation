@@ -38,6 +38,7 @@ public final class GhastCouplingAttachment {
             syncNoAi(ghast, false);
             return false;
         }
+        ghast.setPersistenceRequired();
         syncNoAi(ghast, true);
         if (previousId.isEmpty()) {
             return true;
@@ -137,6 +138,8 @@ public final class GhastCouplingAttachment {
         }
         setNext(tail, head.getUUID());
         setPrevious(head, tail.getUUID());
+        tail.setPersistenceRequired();
+        head.setPersistenceRequired();
         moveTaskToHead(level, first);
         syncCouplingData(tail);
         syncCouplingData(head);
@@ -186,7 +189,7 @@ public final class GhastCouplingAttachment {
         List<HappyGhast> chain = new ArrayList<>();
         Set<UUID> seen = new HashSet<>();
         HappyGhast current = head;
-        while (current != null && seen.add(current.getUUID()) && chain.size() <= MAX_CHAIN_LENGTH) {
+        while (current != null && seen.add(current.getUUID()) && chain.size() < MAX_CHAIN_LENGTH) {
             chain.add(current);
             Optional<UUID> nextId = next(current);
             if (nextId.isEmpty()) {

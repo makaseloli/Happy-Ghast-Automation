@@ -11,7 +11,6 @@ import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.MoverType;
-import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.animal.happyghast.HappyGhast;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.levelgen.Heightmap;
@@ -51,12 +50,11 @@ public final class GhastFlightController {
     private GhastFlightController() {}
 
     static double cruiseSpeed() {
-        return VANILLA_HAPPY_GHAST_FLYING_SPEED * RIDDEN_SPEED_MULTIPLIER;
+        return GhastSpeedResolver.cruiseSpeed();
     }
 
     static double speed(HappyGhast ghast) {
-        double flyingSpeed = ghast.getAttributeValue(Attributes.FLYING_SPEED);
-        return Math.max(0.02, flyingSpeed * RIDDEN_SPEED_MULTIPLIER);
+        return GhastSpeedResolver.speed(ghast);
     }
 
     static void clear(HappyGhast ghast) {
@@ -152,6 +150,8 @@ public final class GhastFlightController {
 
     static void alignToDirection(HappyGhast ghast, Direction direction) {
         setRotation(ghast, direction.toYRot(), 0.0F);
+        ghast.setDeltaMovement(Vec3.ZERO);
+        ghast.hurtMarked = true;
     }
 
     private static TerrainClearance terrainClearance(ServerLevel level, HappyGhast ghast, Vec3 direction, double horizontalDistance) {

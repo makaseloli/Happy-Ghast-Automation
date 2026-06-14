@@ -36,6 +36,7 @@ public final class GhastAutopilot {
     }
 
     public static void initializeAttachedTask(HappyGhast ghast, int focus) {
+        ghast.setPersistenceRequired();
         AutopilotState.reset(ghast, focus);
         ACTIVE_GHASTS.add(ghast.getUUID());
         if (ghast.level() instanceof ServerLevel serverLevel) {
@@ -108,6 +109,7 @@ public final class GhastAutopilot {
 
     private static void tickWithoutTask(ServerLevel level, HappyGhast ghast, boolean fullScan) {
         GhastFlightController.clear(ghast);
+        GhastStationNavigator.clear(ghast);
         FsdTaskAttachment.syncTaskFlag(ghast, false);
         syncNoAi(ghast, false);
         UUID previousId = GhastCouplingAttachment.previous(ghast).orElse(null);
@@ -120,6 +122,7 @@ public final class GhastAutopilot {
             ghast.setDeltaMovement(Vec3.ZERO);
         }
         if (coupled && GhastCouplingAttachment.tick(level, ghast)) {
+            ghast.setPersistenceRequired();
             ACTIVE_GHASTS.add(ghast.getUUID());
             syncVirtualCoupled(level, ghast);
             return;
@@ -134,12 +137,14 @@ public final class GhastAutopilot {
     }
 
     private static void tickTaskCarrier(ServerLevel level, HappyGhast ghast, ItemStack task) {
+        ghast.setPersistenceRequired();
         ACTIVE_GHASTS.add(ghast.getUUID());
         FsdTaskAttachment.syncTaskFlag(ghast, true);
         syncNoAi(ghast, true);
         List<RouteInstruction> route = RouteData.read(task);
         if (route.isEmpty()) {
             GhastFlightController.clear(ghast);
+            GhastStationNavigator.clear(ghast);
             VirtualGhastTracker.remove(ghast.getUUID());
             syncVirtualTrain(level, ghast);
             return;
@@ -150,18 +155,24 @@ public final class GhastAutopilot {
         int oldWaitTicks = state.waitTicks;
         int oldPauseTicks = state.pauseTicks;
         boolean oldDocked = state.docked;
+        AutopilotPhase oldPhase = state.phase;
+        int oldPhaseTicks = state.phaseTicks;
         boolean restoredFromVirtual = VirtualGhastTracker.restoreUnloaded(ghast, state);
+        if (state.index < 0 || state.index >= route.size()) {
+            state.index = Math.min(Math.max(0, RouteData.focus(task)), route.size() - 1);
+            state.waitTicks = 0;
+            state.pauseTicks = 0;
+            state.docked = false;
+            state.resetNavigation();
+        }
         if (state.pauseTicks > 0) {
             state.pauseTicks--;
             state.write(ghast);
-            VirtualGhastTracker.syncLoaded(ghast.getUUID(), level.dimension(), ghast.position(), ghast.getYRot(), GhastCouplingAttachment.previous(ghast).orElse(null), GhastCouplingAttachment.next(ghast).orElse(null), FsdTaskNotifier.ownerUuid(task), FsdTaskNotifier.groupName(task), state, route, playerPassengerCount(ghast), RouteData.loop(task));
+            VirtualGhastTracker.syncLoaded(ghast.getUUID(), level.dimension(), ghast.position(), ghastBottomOffset(ghast), GhastSpeedResolver.speed(ghast), ghast.getYRot(), GhastCouplingAttachment.previous(ghast).orElse(null), GhastCouplingAttachment.next(ghast).orElse(null), FsdTaskNotifier.ownerUuid(task), FsdTaskNotifier.groupName(task), state, route, playerPassengerCount(ghast), RouteData.loop(task));
             syncVirtualTrain(level, ghast);
             return;
         }
 
-        if (state.index < 0 || state.index >= route.size()) {
-            state.index = Math.min(Math.max(0, RouteData.focus(task)), route.size() - 1);
-        }
         RouteInstruction instruction = route.get(state.index);
         boolean taskChanged = switch (instruction.type()) {
             case "fly_to_station" -> GhastStationNavigator.tick(level, ghast, task, state, instruction, route.size(), RouteData.loop(task));
@@ -178,11 +189,21 @@ public final class GhastAutopilot {
             FsdTaskAttachment.setTask(ghast, task);
             GhastControlSync.sync(ghast);
         }
-        if (restoredFromVirtual || oldIndex != state.index || oldWaitTicks != state.waitTicks || oldPauseTicks != state.pauseTicks || oldDocked != state.docked) {
+        if (restoredFromVirtual
+            || oldIndex != state.index
+            || oldWaitTicks != state.waitTicks
+            || oldPauseTicks != state.pauseTicks
+            || oldDocked != state.docked
+            || oldPhase != state.phase
+            || oldPhaseTicks != state.phaseTicks) {
             state.write(ghast);
         }
-        VirtualGhastTracker.syncLoaded(ghast.getUUID(), level.dimension(), ghast.position(), ghast.getYRot(), GhastCouplingAttachment.previous(ghast).orElse(null), GhastCouplingAttachment.next(ghast).orElse(null), FsdTaskNotifier.ownerUuid(task), FsdTaskNotifier.groupName(task), state, route, playerPassengerCount(ghast), RouteData.loop(task));
+        VirtualGhastTracker.syncLoaded(ghast.getUUID(), level.dimension(), ghast.position(), ghastBottomOffset(ghast), GhastSpeedResolver.speed(ghast), ghast.getYRot(), GhastCouplingAttachment.previous(ghast).orElse(null), GhastCouplingAttachment.next(ghast).orElse(null), FsdTaskNotifier.ownerUuid(task), FsdTaskNotifier.groupName(task), state, route, playerPassengerCount(ghast), RouteData.loop(task));
         syncVirtualTrain(level, ghast);
+    }
+
+    private static double ghastBottomOffset(HappyGhast ghast) {
+        return ghast.getY() - ghast.getBoundingBox().minY;
     }
 
     private static int playerPassengerCount(HappyGhast ghast) {
@@ -223,6 +244,8 @@ public final class GhastAutopilot {
             ghast.getUUID(),
             level.dimension(),
             ghast.position(),
+            ghastBottomOffset(ghast),
+            GhastSpeedResolver.speed(ghast),
             ghast.getYRot(),
             GhastCouplingAttachment.previous(ghast).orElse(null),
             GhastCouplingAttachment.next(ghast).orElse(null)
