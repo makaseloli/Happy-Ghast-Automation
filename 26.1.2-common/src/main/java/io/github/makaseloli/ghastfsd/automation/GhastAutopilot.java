@@ -64,7 +64,9 @@ public final class GhastAutopilot {
     }
 
     private static void tickActiveGhasts(MinecraftServer server, Set<UUID> seen) {
-        for (UUID id : Set.copyOf(ACTIVE_GHASTS)) {
+        Set<UUID> candidates = new HashSet<>(ACTIVE_GHASTS);
+        candidates.addAll(VirtualGhastTracker.trackedIds(server));
+        for (UUID id : candidates) {
             HappyGhast ghast = loadedGhast(server, id);
             if (ghast == null || !(ghast.level() instanceof ServerLevel level)) {
                 continue;
@@ -152,7 +154,7 @@ public final class GhastAutopilot {
         if (state.pauseTicks > 0) {
             state.pauseTicks--;
             state.write(ghast);
-            VirtualGhastTracker.syncLoaded(ghast.getUUID(), level.dimension(), ghast.position(), ghast.getYRot(), GhastCouplingAttachment.previous(ghast).orElse(null), GhastCouplingAttachment.next(ghast).orElse(null), FsdTaskNotifier.ownerUuid(task), FsdTaskNotifier.groupName(task), state, route);
+            VirtualGhastTracker.syncLoaded(ghast.getUUID(), level.dimension(), ghast.position(), ghast.getYRot(), GhastCouplingAttachment.previous(ghast).orElse(null), GhastCouplingAttachment.next(ghast).orElse(null), FsdTaskNotifier.ownerUuid(task), FsdTaskNotifier.groupName(task), state, route, playerPassengerCount(ghast), RouteData.loop(task));
             syncVirtualTrain(level, ghast);
             return;
         }
@@ -179,8 +181,12 @@ public final class GhastAutopilot {
         if (restoredFromVirtual || oldIndex != state.index || oldWaitTicks != state.waitTicks || oldPauseTicks != state.pauseTicks || oldDocked != state.docked) {
             state.write(ghast);
         }
-        VirtualGhastTracker.syncLoaded(ghast.getUUID(), level.dimension(), ghast.position(), ghast.getYRot(), GhastCouplingAttachment.previous(ghast).orElse(null), GhastCouplingAttachment.next(ghast).orElse(null), FsdTaskNotifier.ownerUuid(task), FsdTaskNotifier.groupName(task), state, route);
+        VirtualGhastTracker.syncLoaded(ghast.getUUID(), level.dimension(), ghast.position(), ghast.getYRot(), GhastCouplingAttachment.previous(ghast).orElse(null), GhastCouplingAttachment.next(ghast).orElse(null), FsdTaskNotifier.ownerUuid(task), FsdTaskNotifier.groupName(task), state, route, playerPassengerCount(ghast), RouteData.loop(task));
         syncVirtualTrain(level, ghast);
+    }
+
+    private static int playerPassengerCount(HappyGhast ghast) {
+        return (int) ghast.getPassengers().stream().filter(Player.class::isInstance).count();
     }
 
     private static HappyGhast loadedGhast(MinecraftServer server, UUID id) {

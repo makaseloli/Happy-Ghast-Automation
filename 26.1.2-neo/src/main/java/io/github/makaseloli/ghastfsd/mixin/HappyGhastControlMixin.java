@@ -11,7 +11,6 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(HappyGhast.class)
@@ -22,13 +21,6 @@ public class HappyGhastControlMixin implements GhastFsdTaskCarrier {
     private String ghastfsd$couplingNext = "";
     @Unique
     private String ghastfsd$couplingPrevious = "";
-
-    @Inject(method = "getControllingPassenger", at = @At("HEAD"), cancellable = true)
-    private void ghastfsd$getControllingPassenger(CallbackInfoReturnable<LivingEntity> callback) {
-        if (ghastfsd$shouldBlockControl()) {
-            callback.setReturnValue(null);
-        }
-    }
 
     @Inject(method = "getRiddenInput", at = @At("HEAD"), cancellable = true)
     private void ghastfsd$getRiddenInput(Player player, Vec3 input, CallbackInfoReturnable<Vec3> callback) {
@@ -42,13 +34,6 @@ public class HappyGhastControlMixin implements GhastFsdTaskCarrier {
         HappyGhast ghast = (HappyGhast) (Object) this;
         if (ghastfsd$shouldBlockControl()) {
             callback.setReturnValue(new Vec2(ghast.getXRot(), ghast.getYRot()));
-        }
-    }
-
-    @Inject(method = "tickRidden", at = @At("HEAD"), cancellable = true)
-    private void ghastfsd$tickRidden(Player player, Vec3 input, CallbackInfo callback) {
-        if (ghastfsd$shouldBlockControl()) {
-            callback.cancel();
         }
     }
 

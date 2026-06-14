@@ -1,4 +1,6 @@
 package io.github.makaseloli.ghastfsd.content;
+
+import io.github.makaseloli.ghastfsd.automation.GhastFlightController;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -9,11 +11,9 @@ import net.minecraft.core.component.DataComponents;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.MoverType;
 import net.minecraft.world.entity.animal.happyghast.HappyGhast;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.component.CustomData;
-import net.minecraft.world.phys.Vec3;
 
 public final class GhastCouplingAttachment {
     private static final String ROOT = "ghastfsd_coupling";
@@ -46,7 +46,7 @@ public final class GhastCouplingAttachment {
         if (!(previous instanceof HappyGhast previousGhast) || !previousGhast.isAlive()) {
             return true;
         }
-        followPrevious(ghast, previousGhast);
+        GhastFlightController.follow(level, ghast, previousGhast, GAP, FOLLOW_SPEED);
         return true;
     }
 
@@ -232,42 +232,6 @@ public final class GhastCouplingAttachment {
         }
         clearNext(current);
         return current;
-    }
-
-    private static void followPrevious(HappyGhast ghast, HappyGhast previousGhast) {
-        Vec3 forward = horizontalForward(previousGhast.getYRot());
-        double spacing = previousGhast.getBbWidth() * 0.5 + ghast.getBbWidth() * 0.5 + GAP;
-        Vec3 target = previousGhast.position().subtract(forward.scale(spacing));
-        Vec3 delta = target.subtract(ghast.position());
-        if (delta.lengthSqr() > 100.0) {
-            ghast.setPos(target);
-            ghast.setDeltaMovement(Vec3.ZERO);
-        } else if (delta.lengthSqr() > 0.0001) {
-            Vec3 movement = delta.normalize().scale(Math.min(FOLLOW_SPEED, delta.length()));
-            ghast.setDeltaMovement(movement);
-            ghast.move(MoverType.SELF, movement);
-        } else {
-            ghast.setDeltaMovement(Vec3.ZERO);
-        }
-        ghast.setNoGravity(true);
-        setRotation(ghast, previousGhast.getYRot(), previousGhast.getXRot());
-        ghast.hurtMarked = true;
-    }
-
-    private static Vec3 horizontalForward(float yaw) {
-        double radians = Math.toRadians(yaw);
-        return new Vec3(-Math.sin(radians), 0.0, Math.cos(radians));
-    }
-
-    private static void setRotation(HappyGhast ghast, float yaw, float pitch) {
-        ghast.setYRot(yaw);
-        ghast.yRotO = yaw;
-        ghast.yBodyRot = yaw;
-        ghast.yBodyRotO = yaw;
-        ghast.yHeadRot = yaw;
-        ghast.yHeadRotO = yaw;
-        ghast.setXRot(pitch);
-        ghast.xRotO = pitch;
     }
 
     private static Optional<UUID> readUuid(HappyGhast ghast, String key) {

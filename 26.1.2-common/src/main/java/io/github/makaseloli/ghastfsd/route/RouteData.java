@@ -95,9 +95,9 @@ public final class RouteData {
             CompoundTag cmd = new CompoundTag();
             cmd.putString("type", instruction.type());
             cmd.putString("dimension", instruction.dimension().identifier().toString());
-            cmd.putInt("x", 0);
-            cmd.putInt("y", 0);
-            cmd.putInt("z", 0);
+            cmd.putInt("x", instruction.pos().getX());
+            cmd.putInt("y", instruction.pos().getY());
+            cmd.putInt("z", instruction.pos().getZ());
             cmd.putString("station", sanitizeName(instruction.stationName()));
             cmd.putString("condition", sanitizeDepartureCondition(instruction.departureCondition()));
             cmd.putInt("wait_seconds", clamp(instruction.waitSeconds(), MIN_WAIT_SECONDS, MAX_WAIT_SECONDS));

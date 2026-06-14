@@ -2,6 +2,7 @@ package io.github.makaseloli.ghastfsd.automation;
 
 import io.github.makaseloli.ghastfsd.content.GhastCouplingAttachment;
 import io.github.makaseloli.ghastfsd.content.GhastStationGeometry;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -17,7 +18,7 @@ import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
-final class GhastFlightController {
+public final class GhastFlightController {
     private static final double VANILLA_HAPPY_GHAST_FLYING_SPEED = 0.05;
     private static final double RIDDEN_SPEED_MULTIPLIER = 3.9;
     private static final double CRUISE_CLEARANCE = 50.0;
@@ -34,14 +35,18 @@ final class GhastFlightController {
     private static final double TERRAIN_CACHE_MIN_DIRECTION_DOT = 0.985;
     private static final double OBSTACLE_LOOK_AHEAD_DISTANCE = 8.0;
     private static final double OBSTACLE_LOOK_AHEAD_STEP = 1.25;
-    private static final double OBSTACLE_SIDE_WEIGHT = 0.72;
-    private static final double OBSTACLE_UP_WEIGHT = 0.42;
-    private static final double OBSTACLE_DOWN_WEIGHT = 0.56;
-    private static final double OBSTACLE_PROGRESS_WEIGHT = 5.0;
-    private static final double OBSTACLE_ALIGNMENT_WEIGHT = 2.2;
-    private static final double OBSTACLE_TURN_PENALTY = 0.75;
+    private static final double OBSTACLE_PROGRESS_WEIGHT = 8.0;
+    private static final double OBSTACLE_ALIGNMENT_WEIGHT = 3.0;
+    private static final double OBSTACLE_TURN_PENALTY = 0.8;
+    private static final double OBSTACLE_CLEARANCE_WEIGHT = 0.35;
+    private static final double VERTICAL_APPROACH_RADIUS = 3.0;
+    private static final double MOVEMENT_SMOOTHING = 0.72;
+    private static final int MOVEMENT_PLAN_TICKS = 10;
+    private static final double MOVEMENT_PLAN_TARGET_TOLERANCE_SQR = 1.0;
     private static final double COUPLING_GAP = 1.5;
     private static final Map<UUID, TerrainCache> TERRAIN_CACHE = new HashMap<>();
+    private static final Map<UUID, FlightMemory> FLIGHT_MEMORY = new HashMap<>();
+    private static final Map<UUID, MovementPlan> MOVEMENT_PLAN_CACHE = new HashMap<>();
 
     private GhastFlightController() {}
 
@@ -56,12 +61,18 @@ final class GhastFlightController {
 
     static void clear(HappyGhast ghast) {
         TERRAIN_CACHE.remove(ghast.getUUID());
+        FLIGHT_MEMORY.remove(ghast.getUUID());
+        MOVEMENT_PLAN_CACHE.remove(ghast.getUUID());
     }
 
     static Vec3 terrainAwareTarget(ServerLevel level, HappyGhast ghast, Vec3 target) {
         Vec3 horizontal = new Vec3(target.x - ghast.getX(), 0.0, target.z - ghast.getZ());
         double horizontalDistance = horizontal.length();
+        double verticalDistance = Math.abs(target.y - ghast.getY());
         if (horizontalDistance <= GhastStationGeometry.APPROACH_RADIUS * 0.65) {
+            if (verticalDistance > GhastStationGeometry.DOCKING_VERTICAL_TOLERANCE * 2.0) {
+                return new Vec3(ghast.getX(), target.y, ghast.getZ());
+            }
             return target;
         }
         Vec3 direction = horizontal.normalize();
@@ -90,19 +101,53 @@ final class GhastFlightController {
     static void moveToward(ServerLevel level, HappyGhast ghast, Vec3 target, double speed) {
         Vec3 delta = target.subtract(ghast.position());
         if (delta.lengthSqr() < 0.0001) {
-            ghast.setDeltaMovement(Vec3.ZERO);
+            stop(ghast);
             return;
         }
-        Vec3 desired = steeringVector(level, ghast, target, speed);
-        Vec3 blended = ghast.getDeltaMovement().scale(0.72).add(desired.scale(0.28));
-        if (!hasCollisionFreePath(level, ghast, blended, Math.min(OBSTACLE_LOOK_AHEAD_DISTANCE, Math.max(blended.length(), speed)))) {
-            blended = desired;
+        if (!level.noCollision(ghast, ghast.getBoundingBox())) {
+            Vec3 escape = delta.normalize().scale(Math.min(speed, delta.length()));
+            forceControlledMove(ghast, escape);
+            return;
         }
-        ghast.setDeltaMovement(blended);
+        Vec3 desired = plannedMovement(level, ghast, target, speed);
+        Vec3 movement = smoothMovement(ghast, desired, speed);
+        if (!hasCollisionFreePath(level, ghast, movement, Math.min(OBSTACLE_LOOK_AHEAD_DISTANCE, Math.max(movement.length(), speed)))) {
+            movement = desired;
+        }
+        applyControlledMove(ghast, movement);
+    }
+
+    private static Vec3 plannedMovement(ServerLevel level, HappyGhast ghast, Vec3 target, double speed) {
+        MovementPlan cached = MOVEMENT_PLAN_CACHE.get(ghast.getUUID());
+        if (cached != null
+            && cached.tick + MOVEMENT_PLAN_TICKS > ghast.tickCount
+            && cached.target.distanceToSqr(target) <= MOVEMENT_PLAN_TARGET_TOLERANCE_SQR
+            && Math.abs(cached.speed - speed) < 1.0E-6
+            && cached.movement.lengthSqr() > 1.0E-8) {
+            double remaining = target.distanceTo(ghast.position());
+            return cached.movement.normalize().scale(Math.min(speed, remaining));
+        }
+        Vec3 planned = planMovement(level, ghast, target, speed);
+        MOVEMENT_PLAN_CACHE.put(ghast.getUUID(), new MovementPlan(ghast.tickCount, target, speed, planned));
+        return planned;
+    }
+
+    public static void follow(ServerLevel level, HappyGhast ghast, HappyGhast previousGhast, double gap, double speed) {
+        Vec3 forward = horizontalForward(previousGhast.getYRot());
+        double spacing = previousGhast.getBbWidth() * 0.5 + ghast.getBbWidth() * 0.5 + gap;
+        Vec3 target = previousGhast.position().subtract(forward.scale(spacing));
+        Vec3 delta = target.subtract(ghast.position());
+        if (delta.lengthSqr() > 100.0) {
+            ghast.setPos(target);
+            stop(ghast);
+        } else if (delta.lengthSqr() > 0.0001) {
+            Vec3 desired = delta.normalize().scale(Math.min(speed, delta.length()));
+            applyControlledMove(ghast, smoothMovement(ghast, desired, speed));
+        } else {
+            stop(ghast);
+        }
         ghast.setNoGravity(true);
-        faceToward(ghast, blended);
-        ghast.move(MoverType.SELF, blended);
-        ghast.hurtMarked = true;
+        setRotation(ghast, previousGhast.getYRot(), previousGhast.getXRot());
     }
 
     static void alignToDirection(HappyGhast ghast, Direction direction) {
@@ -154,7 +199,7 @@ final class GhastFlightController {
         return level.getHeight(Heightmap.Types.WORLD_SURFACE, x, z);
     }
 
-    private static Vec3 steeringVector(ServerLevel level, HappyGhast ghast, Vec3 target, double speed) {
+    private static Vec3 planMovement(ServerLevel level, HappyGhast ghast, Vec3 target, double speed) {
         Vec3 toTarget = target.subtract(ghast.position());
         double distance = toTarget.length();
         if (distance < 0.0001) {
@@ -168,27 +213,11 @@ final class GhastFlightController {
         }
 
         Vec3 targetDirection = toTarget.normalize();
-        Vec3 horizontal = new Vec3(toTarget.x, 0.0, toTarget.z);
-        Vec3 forward = horizontal.lengthSqr() > 1.0E-6 ? horizontal.normalize() : new Vec3(0.0, 0.0, 1.0);
-        Vec3 side = new Vec3(-forward.z, 0.0, forward.x);
-        double preferredSide = (ghast.getUUID().getLeastSignificantBits() & 1L) == 0L ? 1.0 : -1.0;
-        Vec3[] candidates = new Vec3[] {
-            forward.add(side.scale(preferredSide * OBSTACLE_SIDE_WEIGHT)),
-            forward.add(side.scale(-preferredSide * OBSTACLE_SIDE_WEIGHT)),
-            side.scale(preferredSide).add(forward.scale(0.25)),
-            side.scale(-preferredSide).add(forward.scale(0.25)),
-            forward.add(side.scale(preferredSide * OBSTACLE_SIDE_WEIGHT)).add(0.0, -OBSTACLE_DOWN_WEIGHT, 0.0),
-            forward.add(side.scale(-preferredSide * OBSTACLE_SIDE_WEIGHT)).add(0.0, -OBSTACLE_DOWN_WEIGHT, 0.0),
-            forward.add(side.scale(preferredSide * OBSTACLE_SIDE_WEIGHT)).add(0.0, OBSTACLE_UP_WEIGHT, 0.0),
-            forward.add(side.scale(-preferredSide * OBSTACLE_SIDE_WEIGHT)).add(0.0, OBSTACLE_UP_WEIGHT, 0.0),
-            new Vec3(0.0, -1.0, 0.0).add(forward.scale(0.2)),
-            new Vec3(0.0, 1.0, 0.0).add(forward.scale(0.2)),
-            targetDirection
-        };
-
+        NavigationBasis basis = NavigationBasis.from(targetDirection);
+        List<Vec3> candidates = movementCandidates(ghast, toTarget, targetDirection, basis);
         Vec3 best = null;
         double bestScore = Double.NEGATIVE_INFINITY;
-        Vec3 previous = ghast.getDeltaMovement();
+        Vec3 previous = FLIGHT_MEMORY.getOrDefault(ghast.getUUID(), FlightMemory.STOPPED).movement;
         Vec3 previousDirection = previous.lengthSqr() > 1.0E-6 ? previous.normalize() : Vec3.ZERO;
         for (Vec3 candidate : candidates) {
             if (candidate.lengthSqr() < 1.0E-6) {
@@ -202,11 +231,11 @@ final class GhastFlightController {
             double progress = distance - target.distanceTo(nextPosition);
             double alignment = movement.normalize().dot(targetDirection);
             double turnPenalty = previousDirection == Vec3.ZERO ? 0.0 : 1.0 - Math.max(-1.0, Math.min(1.0, movement.normalize().dot(previousDirection)));
-            double verticalPenalty = Math.abs(movement.y) / Math.max(step, 0.0001);
+            double clearance = collisionFreeDistance(level, ghast, movement, OBSTACLE_LOOK_AHEAD_DISTANCE);
             double score = progress * OBSTACLE_PROGRESS_WEIGHT
                 + alignment * OBSTACLE_ALIGNMENT_WEIGHT
                 - turnPenalty * OBSTACLE_TURN_PENALTY
-                - verticalPenalty * 0.35;
+                + clearance * OBSTACLE_CLEARANCE_WEIGHT;
             if (score > bestScore) {
                 bestScore = score;
                 best = movement;
@@ -215,21 +244,116 @@ final class GhastFlightController {
         if (best != null) {
             return best;
         }
-        return findOpenEscapeVector(level, ghast, forward, side, step, preferredSide);
+        return findOpenEscapeVector(level, ghast, targetDirection, basis, step);
     }
 
-    private static Vec3 findOpenEscapeVector(ServerLevel level, HappyGhast ghast, Vec3 forward, Vec3 side, double step, double preferredSide) {
+    private static List<Vec3> movementCandidates(HappyGhast ghast, Vec3 toTarget, Vec3 targetDirection, NavigationBasis basis) {
+        ArrayList<Vec3> candidates = new ArrayList<>();
+        candidates.add(targetDirection);
+        if (GhastStationGeometry.horizontalDistance(ghast.position(), ghast.position().add(toTarget)) <= VERTICAL_APPROACH_RADIUS) {
+            candidates.add(new Vec3(0.0, Math.signum(toTarget.y), 0.0));
+        }
+        double preferredSide = (ghast.getUUID().getLeastSignificantBits() & 1L) == 0L ? 1.0 : -1.0;
+        double[] sideBiases = { preferredSide, -preferredSide };
+        double[] forwardWeights = { 0.9, 0.55, 0.25, 0.0, -0.3 };
+        double[] sideWeights = { 0.35, 0.7, 1.0 };
+        double[] liftWeights = { 0.0, 0.35, -0.35, 0.7, -0.7 };
+        for (double forwardWeight : forwardWeights) {
+            for (double sideBias : sideBiases) {
+                for (double sideWeight : sideWeights) {
+                    for (double liftWeight : liftWeights) {
+                        candidates.add(targetDirection.scale(forwardWeight)
+                            .add(basis.side().scale(sideBias * sideWeight))
+                            .add(basis.lift().scale(liftWeight)));
+                    }
+                }
+            }
+        }
+        candidates.add(basis.lift());
+        candidates.add(basis.lift().scale(-1.0));
+        candidates.add(basis.side().scale(preferredSide));
+        candidates.add(basis.side().scale(-preferredSide));
+        candidates.add(targetDirection.scale(-0.5).add(basis.lift().scale(0.7)));
+        candidates.add(targetDirection.scale(-0.5).add(basis.lift().scale(-0.7)));
+        return candidates;
+    }
+
+    private static Vec3 smoothMovement(HappyGhast ghast, Vec3 desired, double maxStep) {
+        if (desired.lengthSqr() < 1.0E-8) {
+            return Vec3.ZERO;
+        }
+        FlightMemory memory = FLIGHT_MEMORY.get(ghast.getUUID());
+        if (memory == null || memory.tick + 1 < ghast.tickCount || memory.movement.lengthSqr() < 1.0E-8) {
+            return limit(desired, maxStep);
+        }
+        Vec3 blended = memory.movement.scale(MOVEMENT_SMOOTHING).add(desired.scale(1.0 - MOVEMENT_SMOOTHING));
+        if (blended.lengthSqr() < 1.0E-8) {
+            return limit(desired, maxStep);
+        }
+        return limit(blended, Math.min(maxStep, desired.length()));
+    }
+
+    private static Vec3 limit(Vec3 movement, double maxLength) {
+        double length = movement.length();
+        if (length <= maxLength || length < 1.0E-8) {
+            return movement;
+        }
+        return movement.scale(maxLength / length);
+    }
+
+    private static void applyControlledMove(HappyGhast ghast, Vec3 movement) {
+        if (movement.lengthSqr() < 1.0E-8) {
+            stop(ghast);
+            return;
+        }
+        Vec3 before = ghast.position();
+        ghast.setNoGravity(true);
+        faceToward(ghast, movement);
+        ghast.move(MoverType.SELF, movement);
+        Vec3 actual = ghast.position().subtract(before);
+        ghast.setDeltaMovement(Vec3.ZERO);
+        if (actual.lengthSqr() > 1.0E-8) {
+            FLIGHT_MEMORY.put(ghast.getUUID(), new FlightMemory(ghast.tickCount, actual));
+        } else {
+            FLIGHT_MEMORY.put(ghast.getUUID(), FlightMemory.stoppedAt(ghast.tickCount));
+        }
+        ghast.hurtMarked = true;
+    }
+
+    private static void forceControlledMove(HappyGhast ghast, Vec3 movement) {
+        if (movement.lengthSqr() < 1.0E-8) {
+            stop(ghast);
+            return;
+        }
+        Vec3 before = ghast.position();
+        Vec3 after = before.add(movement);
+        ghast.setNoGravity(true);
+        faceToward(ghast, movement);
+        ghast.setPos(after.x, after.y, after.z);
+        ghast.setDeltaMovement(Vec3.ZERO);
+        FLIGHT_MEMORY.put(ghast.getUUID(), new FlightMemory(ghast.tickCount, movement));
+        MOVEMENT_PLAN_CACHE.remove(ghast.getUUID());
+        ghast.hurtMarked = true;
+    }
+
+    private static void stop(HappyGhast ghast) {
+        ghast.setDeltaMovement(Vec3.ZERO);
+        FLIGHT_MEMORY.put(ghast.getUUID(), FlightMemory.stoppedAt(ghast.tickCount));
+    }
+
+    private static Vec3 findOpenEscapeVector(ServerLevel level, HappyGhast ghast, Vec3 targetDirection, NavigationBasis basis, double step) {
+        double preferredSide = (ghast.getUUID().getLeastSignificantBits() & 1L) == 0L ? 1.0 : -1.0;
         Vec3[] escapes = new Vec3[] {
-            side.scale(preferredSide),
-            side.scale(-preferredSide),
-            side.scale(preferredSide).add(0.0, -0.6, 0.0),
-            side.scale(-preferredSide).add(0.0, -0.6, 0.0),
-            side.scale(preferredSide).add(0.0, 0.45, 0.0),
-            side.scale(-preferredSide).add(0.0, 0.45, 0.0),
-            forward.scale(-0.6).add(side.scale(preferredSide)),
-            forward.scale(-0.6).add(side.scale(-preferredSide)),
-            new Vec3(0.0, -1.0, 0.0),
-            new Vec3(0.0, 1.0, 0.0)
+            basis.lift(),
+            basis.lift().scale(-1.0),
+            basis.side().scale(preferredSide),
+            basis.side().scale(-preferredSide),
+            basis.side().scale(preferredSide).add(basis.lift().scale(0.7)),
+            basis.side().scale(-preferredSide).add(basis.lift().scale(0.7)),
+            basis.side().scale(preferredSide).add(basis.lift().scale(-0.7)),
+            basis.side().scale(-preferredSide).add(basis.lift().scale(-0.7)),
+            targetDirection.scale(-0.6).add(basis.side().scale(preferredSide)),
+            targetDirection.scale(-0.6).add(basis.side().scale(-preferredSide))
         };
         for (Vec3 escape : escapes) {
             Vec3 movement = escape.normalize().scale(step);
@@ -253,6 +377,22 @@ final class GhastFlightController {
             }
         }
         return footprint.noCollision(level, ghast, movement);
+    }
+
+    private static double collisionFreeDistance(ServerLevel level, HappyGhast ghast, Vec3 movement, double maxDistance) {
+        if (movement.lengthSqr() < 1.0E-8) {
+            return 0.0;
+        }
+        Vec3 direction = movement.normalize();
+        TrainFootprint footprint = TrainFootprint.of(level, ghast, direction);
+        double distance = 0.0;
+        for (double checked = OBSTACLE_LOOK_AHEAD_STEP; checked <= maxDistance; checked += OBSTACLE_LOOK_AHEAD_STEP) {
+            if (!footprint.noCollision(level, ghast, direction.scale(checked))) {
+                return distance;
+            }
+            distance = checked;
+        }
+        return distance;
     }
 
     private static void faceToward(HappyGhast ghast, Vec3 movement) {
@@ -282,9 +422,43 @@ final class GhastFlightController {
         return from + (to - from) * amount;
     }
 
+    private static Vec3 horizontalForward(float yaw) {
+        double radians = Math.toRadians(yaw);
+        return new Vec3(-Math.sin(radians), 0.0, Math.cos(radians));
+    }
+
     private record TerrainClearance(double safeBottomY, double firstClimbDistance) {}
 
     private record TerrainCache(ResourceKey<Level> dimension, int tick, Vec3 position, Vec3 direction, double horizontalDistance, TerrainClearance clearance) {}
+
+    private record FlightMemory(int tick, Vec3 movement) {
+        private static final FlightMemory STOPPED = new FlightMemory(Integer.MIN_VALUE, Vec3.ZERO);
+
+        private static FlightMemory stoppedAt(int tick) {
+            return new FlightMemory(tick, Vec3.ZERO);
+        }
+    }
+
+    private record MovementPlan(int tick, Vec3 target, double speed, Vec3 movement) {}
+
+    private record NavigationBasis(Vec3 side, Vec3 lift) {
+        static NavigationBasis from(Vec3 direction) {
+            Vec3 reference = Math.abs(direction.y) > 0.82 ? new Vec3(1.0, 0.0, 0.0) : new Vec3(0.0, 1.0, 0.0);
+            Vec3 side = direction.cross(reference);
+            if (side.lengthSqr() < 1.0E-8) {
+                side = new Vec3(1.0, 0.0, 0.0);
+            } else {
+                side = side.normalize();
+            }
+            Vec3 lift = side.cross(direction);
+            if (lift.lengthSqr() < 1.0E-8) {
+                lift = new Vec3(0.0, 1.0, 0.0);
+            } else {
+                lift = lift.normalize();
+            }
+            return new NavigationBasis(side, lift);
+        }
+    }
 
     private record TrainFootprint(List<AABB> currentBoxes, List<AABB> projectedBoxes) {
         static TrainFootprint of(ServerLevel level, HappyGhast head, Vec3 direction) {
