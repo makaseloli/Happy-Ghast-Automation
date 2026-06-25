@@ -1,5 +1,6 @@
-import net.meatwo310.mdk.build.configureRuntimeMods
+import net.meatwo310.mdk.build.configureCiRuntimeMods
 import net.meatwo310.mdk.build.supportsGameTestServer
+import org.gradle.api.file.DuplicatesStrategy
 
 plugins {
     `java-library`
@@ -28,7 +29,7 @@ val loaderVersionRange = project.properties["loaderVersionRange"]?.toString()
 val parchmentMinecraftVersion = project.properties["parchmentMinecraftVersion"]?.toString()
 val parchmentMappingsVersion = project.properties["parchmentMappingsVersion"]?.toString()
 val neoDataRun = project.properties["neoDataRun"]?.toString() ?: "data"
-configureRuntimeMods()
+configureCiRuntimeMods()
 
 dependencies {
     implementation(project(commonProject))
@@ -41,7 +42,7 @@ sourceSets.main.get().resources {
 }
 
 base {
-    archivesName = "$modId-$minecraftVersion-neo"
+    archivesName = "$modId-$minecraftVersion-neoforge"
 }
 
 java.toolchain {
@@ -87,7 +88,7 @@ neoForge {
 
         create("data") {
             if (neoDataRun == "clientData") clientData() else data()
-            gameDirectory = project.file("run-data")
+            gameDirectory = file("run-data")
             programArguments.addAll(
                 "--mod", modId,
                 "--all",
@@ -105,8 +106,8 @@ neoForge {
     mods {
         create(modId) {
             sourceSet(sourceSets.main.get())
-            sourceSet(project(sharedCommonProject).sourceSets.main.get())
             sourceSet(project(commonProject).sourceSets.main.get())
+            sourceSet(project(sharedCommonProject).sourceSets.main.get())
         }
     }
 }
@@ -137,6 +138,7 @@ sourceSets.main.get().resources.srcDir(generateModMetadata)
 neoForge.ideSyncTask(generateModMetadata)
 
 tasks.jar {
-    from(project(sharedCommonProject).sourceSets.main.get().output)
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     from(project(commonProject).sourceSets.main.get().output)
+    from(project(sharedCommonProject).sourceSets.main.get().output)
 }

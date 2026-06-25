@@ -12,11 +12,11 @@ Use the smallest scope that describes the affected area.
 
 ## Scope Rules
 
-Subprojects are the top-level directories for shared code, Minecraft versions, and loader targets, such as `common`, `1.20.1-common`, `1.20.1-fabric`, `1.20.1-forge`, or `26.1.2-neo`.
+Subprojects are named for shared code, Minecraft versions, and loader targets, such as `common`, `1.20.1-common`, `1.20.1-fabric`, `1.20.1-forge`, or `26.1.2-neo`. Versioned subprojects live under directories such as `1.20.1/common`, `1.20.1/fabric`, `1.20.1/forge`, or `26.1.2/neo`.
 
 | Changes affect...                            | Scope                                                                    |
 |----------------------------------------------|--------------------------------------------------------------------------|
-| A single subproject                          | Use that directory name, such as `fix(26.1.2-fabric): ...`               |
+| A single subproject                          | Use that project name, such as `fix(26.1.2-fabric): ...`                 |
 | Multiple but not all subprojects             | Include the relevant names, such as `feat(1.20.1-forge,1.21.1-neo): ...` |
 | All loaders for a specific Minecraft version | Use only the version number, such as `fix(1.20.1): ...`                  |
 | All Minecraft versions for a specific loader | Use only the loader name, such as `feat(fabric): ...`                    |
@@ -46,8 +46,8 @@ feat(fabric): add Mod Menu integration across Fabric targets
 
 ## MDK Template Changes
 
-When committing changes to the MDK template itself, use `mdk` as the type so
-that downstream mod release notes can exclude them.
+When committing changes to the [MDK template itself](https://github.com/Meatwo310/custom-mdk),
+you **MUST** use `mdk` as the type so that downstream mod release notes can exclude them.
 
 For changes that would otherwise use `feat` or `fix`, use the scope rules above
 to identify the affected subprojects, Minecraft version, or loader. For other

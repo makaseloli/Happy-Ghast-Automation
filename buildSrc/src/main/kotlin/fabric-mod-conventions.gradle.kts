@@ -1,5 +1,6 @@
 import groovy.json.JsonOutput
 import net.meatwo310.mdk.build.*
+import org.gradle.api.file.DuplicatesStrategy
 
 plugins {
     `java-library`
@@ -26,7 +27,7 @@ val sharedCommonProject = ":common"
 evaluationDependsOn(sharedCommonProject)
 val generatedModMetadataDir = layout.buildDirectory.dir("generated/sources/modMetadata")
 val fabricModMetadata = extensions.create<FabricModMetadataExtension>("fabricModMetadata")
-configureRuntimeMods()
+configureCiRuntimeMods()
 
 dependencies {
     implementation(project(commonProject))
@@ -42,7 +43,6 @@ fabricModMetadata.depends.putAll(linkedMapOf(
     "fabricloader" to ">=${versionCatalog.version(VersionCatalogVersion.FabricLoader)}",
     "minecraft" to "~$minecraftVersion",
     "java" to ">=$javaVersion",
-    "fabric-api" to "*",
 ))
 
 fun defaultModMetadata(fabricDependencies: Map<String, String>) = linkedMapOf<String, Any?>(
@@ -98,6 +98,7 @@ tasks.named("sourcesJar") {
 }
 
 tasks.jar {
-    from(project(sharedCommonProject).sourceSets.main.get().output)
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     from(project(commonProject).sourceSets.main.get().output)
+    from(project(sharedCommonProject).sourceSets.main.get().output)
 }

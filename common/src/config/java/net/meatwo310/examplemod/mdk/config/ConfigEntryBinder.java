@@ -13,60 +13,66 @@ public final class ConfigEntryBinder implements ConfigVisitor {
 
     @Override
     public void bind(ConfigEntry.IntEntry entry) {
-        adapter.comment(entry.comment());
+        comment(entry.comment());
         var range = entry.range();
         entry.bind(adapter.defineIntInRange(entry.key(), entry.defaultValue(), range.min(), range.max()));
     }
 
     @Override
     public void bind(ConfigEntry.LongEntry entry) {
-        adapter.comment(entry.comment());
+        comment(entry.comment());
         var range = entry.range();
         entry.bind(adapter.defineLongInRange(entry.key(), entry.defaultValue(), range.min(), range.max()));
     }
 
     @Override
     public void bind(ConfigEntry.DoubleEntry entry) {
-        adapter.comment(entry.comment());
+        comment(entry.comment());
         var range = entry.range();
         entry.bind(adapter.defineDoubleInRange(entry.key(), entry.defaultValue(), range.min(), range.max()));
     }
 
     @Override
     public void bind(ConfigEntry.BooleanEntry entry) {
-        adapter.comment(entry.comment());
+        comment(entry.comment());
         entry.bind(adapter.defineBoolean(entry.key(), entry.defaultValue()));
     }
 
     @Override
     public void bind(ConfigEntry.StringEntry entry) {
-        adapter.comment(entry.comment());
+        comment(entry.comment());
         entry.bind(adapter.defineString(entry.key(), entry.defaultValue()));
     }
 
     @Override
     public <T> void bind(ConfigEntry.ListEntry<T> entry) {
-        adapter.comment(entry.comment());
+        comment(entry.comment());
         var value = adapter.defineList(
                 entry.key(), entry.defaultValue(), entry.newElementSupplier(), entry.elementValidator());
-        entry.bind(() -> List.copyOf(value.get()));
+        entry.bind(value);
     }
 
     @Override
     public <E extends Enum<E>> void bind(ConfigEntry.EnumEntry<E> entry) {
-        adapter.comment(entry.comment());
+        comment(entry.comment());
         entry.bind(adapter.defineEnum(entry.key(), entry.defaultValue()));
     }
 
     @Override
     public void push(String key, String comment) {
-        adapter.comment(comment);
+        comment(comment);
         adapter.push(key);
     }
 
     @Override
     public void pop() {
         adapter.pop();
+    }
+
+    private void comment(String comment) {
+        if (!comment.isBlank()) {
+            adapter.comment(comment);
+        }
     }
 
     public interface Adapter {
@@ -76,19 +82,19 @@ public final class ConfigEntryBinder implements ConfigVisitor {
 
         void pop();
 
-        Supplier<Integer> defineIntInRange(String key, int defaultValue, int min, int max);
+        ConfigEntryBinding<Integer> defineIntInRange(String key, int defaultValue, int min, int max);
 
-        Supplier<Long> defineLongInRange(String key, long defaultValue, long min, long max);
+        ConfigEntryBinding<Long> defineLongInRange(String key, long defaultValue, long min, long max);
 
-        Supplier<Double> defineDoubleInRange(String key, double defaultValue, double min, double max);
+        ConfigEntryBinding<Double> defineDoubleInRange(String key, double defaultValue, double min, double max);
 
-        Supplier<Boolean> defineBoolean(String key, boolean defaultValue);
+        ConfigEntryBinding<Boolean> defineBoolean(String key, boolean defaultValue);
 
-        Supplier<String> defineString(String key, String defaultValue);
+        ConfigEntryBinding<String> defineString(String key, String defaultValue);
 
-        <T> Supplier<? extends List<? extends T>> defineList(
+        <T> ConfigEntryBinding<List<T>> defineList(
                 String key, List<T> defaultValue, Supplier<T> newElementSupplier, Predicate<Object> elementValidator);
 
-        <E extends Enum<E>> Supplier<E> defineEnum(String key, E defaultValue);
+        <E extends Enum<E>> ConfigEntryBinding<E> defineEnum(String key, E defaultValue);
     }
 }

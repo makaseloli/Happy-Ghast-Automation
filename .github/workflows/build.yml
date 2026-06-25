@@ -82,9 +82,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          path: |
-            ${{ matrix.subproject }}/build/libs/
-            ${{ matrix.subproject }}/build/runtimeMods/
+          path: ${{ matrix.project_dir }}/build/libs/
           name: artifact-${{ matrix.subproject }}
 
       # Fabric Game Tests are run implicitly by the build task.
@@ -97,11 +95,15 @@ jobs:
         if: ${{ matrix.run_server }}
         timeout-minutes: 10
         run: |
-          mkdir -p "${{ matrix.subproject }}/run"
-          printf 'eula=true\n' > "${{ matrix.subproject }}/run/eula.txt"
-          echo stop | ./gradlew ":${{ matrix.subproject }}:runServer"
+          set -o pipefail
+          mkdir -p "${{ matrix.project_dir }}/run"
+          printf 'eula=true\n' > "${{ matrix.project_dir }}/run/eula.txt"
+          server_log="${RUNNER_TEMP}/runServer-${{ matrix.subproject }}.log"
+          printf 'stop\n' | ./gradlew ":${{ matrix.subproject }}:runServer" 2>&1 | tee "$server_log"
+          grep -E '\[Server thread/INFO\].*Stopping server$' "$server_log"
 
       - name: Setup runtime JDK
+        if: ${{ matrix.run_mc_runtime_test }}
         uses: actions/setup-java@v5
         with:
           java-version: ${{ matrix.java }}
@@ -110,21 +112,23 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Stage mod for runtime test client
+        if: ${{ matrix.run_mc_runtime_test }}
         run: |
           mkdir -p run/mods
-          find "${{ matrix.subproject }}/build/libs" -maxdepth 1 -type f -name '*.jar' \
+          find "${{ matrix.project_dir }}/build/libs" -maxdepth 1 -type f -name '*.jar' \
             ! -name '*-sources.jar' \
             ! -name '*-javadoc.jar' \
             ! -name '*-dev.jar' \
             -exec cp {} run/mods/ \;
-          if [[ -d "${{ matrix.subproject }}/build/runtimeMods" ]]; then
-            find "${{ matrix.subproject }}/build/runtimeMods" -maxdepth 1 -type f -name '*.jar' \
+          if [[ -d "${{ matrix.project_dir }}/build/ciRuntimeMods" ]]; then
+            find "${{ matrix.project_dir }}/build/ciRuntimeMods" -maxdepth 1 -type f -name '*.jar' \
               -exec cp {} run/mods/ \;
           fi
           test -n "$(find run/mods -maxdepth 1 -type f -name '*.jar' -print -quit)"
           ls -la run/mods
 
       - name: Run MC runtime test client
+        if: ${{ matrix.run_mc_runtime_test }}
         timeout-minutes: 10
         uses: headlesshq/mc-runtime-test@4.4.0
         with:

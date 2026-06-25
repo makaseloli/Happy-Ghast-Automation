@@ -1,7 +1,6 @@
 import net.meatwo310.mdk.build.VersionCatalogLibrary
 import net.meatwo310.mdk.build.library
 import net.meatwo310.mdk.build.module
-import net.meatwo310.mdk.build.supportsGameTestServer
 import net.meatwo310.mdk.build.versionCatalog
 
 plugins {
@@ -11,7 +10,6 @@ plugins {
 
 val modId: String by project
 val minecraftVersion: String by project
-val fabricApiVersion: String by project
 val parchmentMinecraftVersion: String by project
 val parchmentMappingsVersion: String by project
 
@@ -26,15 +24,16 @@ loom {
         create(modId) {
             sourceSet(sourceSets.main.get())
             sourceSet(sourceSets.named("client").get())
-            sourceSet(project(sharedCommonProject).sourceSets.main.get())
             sourceSet(project(commonProject).sourceSets.main.get())
+            sourceSet(project(sharedCommonProject).sourceSets.main.get())
         }
     }
 
     runs.configureEach {
-        ideConfigGenerated(true)
+        generateRunConfig.set(true)
+        preferGradleTask.set(true)
         if (name == "gameTest") {
-            vmArg("-Dfabric.log.level=debug")
+            jvmArguments.add("-Dfabric.log.level=debug")
         }
     }
 }
@@ -47,20 +46,4 @@ dependencies {
         parchment("${versionCatalog.module(VersionCatalogLibrary.ParchmentData)}-$parchmentMinecraftVersion:$parchmentMappingsVersion@zip")
     })
     modImplementation(versionCatalog.library(VersionCatalogLibrary.FabricLoader))
-    modImplementation("${versionCatalog.module(VersionCatalogLibrary.FabricApi)}:$fabricApiVersion")
-}
-
-if (minecraftVersion.supportsGameTestServer()) {
-    fabricApi {
-        val testModId = "$modId-test"
-
-        @Suppress("UnstableApiUsage")
-        configureTests {
-            createSourceSet = true
-            modId = testModId
-            enableGameTests = true
-            enableClientGameTests = true
-            eula = true
-        }
-    }
 }
