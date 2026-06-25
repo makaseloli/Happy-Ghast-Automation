@@ -54,9 +54,9 @@ fun includeMc(minecraftVersion: String, kind: String) {
 // includeMc("26.1", "neo")
 
 /// 26.1.2 ///
-includeMc("26.1.2", "common")
-includeMc("26.1.2", "fabric")
-includeMc("26.1.2", "neo")
+// includeMc("26.1.2", "common")
+// includeMc("26.1.2", "fabric")
+// includeMc("26.1.2", "neo")
 
 /// 26.2 ///
 includeMc("26.2", "common")
